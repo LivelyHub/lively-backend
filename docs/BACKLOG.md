@@ -157,43 +157,34 @@ All 10 tables from CORE.md §1 (freeze after Day 1): `elders`, `family_members`,
 ## Epic B5 — Assessments & exercise `P0`
 
 ### B5.1 `POST /assessments/chair-test` `P0`
-- [ ] Bot-key auth; body `{elder_id, reps:int, recorded_at?}`; `source` fixed `'chat'`
-- [ ] `reps` sanity-bounded 0–60; out of range → 400
-- [ ] 201 with the row
+- [x] Bot-key auth; body `{elder_id, reps:int, recorded_at?}`; `source` fixed `'chat'`
+- [x] `reps` sanity-bounded 0–60; out of range → 400
+- [x] 201 with the row
 
-**Test:** valid 201; `reps:200` → 400; shows in B5.3.
+**Test:** valid 201; `reps:200` → 400 with `fields.reps`; `reps:-1` → 400; unknown elder → 404; shows in B5.3 (verified against Neon).
 **Depends on:** B2.2.
 
 ### B5.2 `POST /exercise-logs` `P0`
-- [ ] Bot-key auth; body `{elder_id, method, completed_at?}`
-- [ ] One log per elder per day (idempotent); duplicate same-day → 200 existing row
+- [x] Bot-key auth; body `{elder_id, method, completed_at?}`
+- [x] One log per elder per day (idempotent); duplicate same-day → 200 existing row. Day boundary is UTC calendar day, not each elder's local Indonesian timezone (WIB/WITA/WIT) — the schema has no per-elder timezone column and none was requested; a deliberate simplification, not an oversight.
 
-**Test:** two posts same day → one row; different days → two.
+**Test:** two posts same day → one row, same id, second returns 200 not 201 (verified against Neon); explicit `completed_at` on a different day → new row, 201.
 **Depends on:** B2.2.
 
 ### B5.3 `GET /elders/:id/progress` — Progress aggregate `P0`
 ⚠️ **CORE.md gap** (Amendments): SPEC §3 promises "backend aggregates → mobile renders" but no read endpoint exists. One aggregate call = one mobile skeleton. Also the data source for the gamification screen (CORE.md §7): progress bar, streak, and graphs.
-- [ ] Family JWT + ownership
-- [ ] Response:
-  ```json
-  {
-    "overall_progress_pct": 78,
-    "engagement_streak_days": 5,
-    "chair_tests": [{"reps": 8, "recorded_at": "..."}],
-    "exercise": {"current_streak_days": 3, "this_week": ["2026-07-14"], "total": 12},
-    "exercise_history": [{"date": "2026-07-14", "completed": true}],
-    "medication_adherence": {"last7d_taken": 6, "last7d_scheduled": 7, "unconfirmed_today": ["Amlodipine 19:00"]},
-    "medication_adherence_trend": [{"date": "2026-07-14", "taken": 1, "scheduled": 1}]
-  }
-  ```
-- [ ] Chair tests oldest→newest (chart-ready), capped last 20
-- [ ] `exercise_history` and `medication_adherence_trend`: last 30 days, oldest→newest (chart-ready)
-- [ ] `overall_progress_pct` = average of `latest_reps/15*100`, `current_streak_days/7*100`, `last7d_taken/last7d_scheduled*100`, each capped at 100 (CORE.md §7 — tuning constants, keep in sync with mobile)
-- [ ] `engagement_streak_days` = consecutive calendar days with ≥1 of {exercise_logs, medication_logs, chair_test_results} row (broader than `exercise.current_streak_days`)
-- [ ] Zero-data elder → zeros/empty arrays, 200
+- [x] Family JWT + ownership
+- [x] Response matches the CORE.md §7 shape (`overall_progress_pct`, `engagement_streak_days`, `chair_tests`, `exercise`, `exercise_history`, `medication_adherence`, `medication_adherence_trend`)
+- [x] Chair tests oldest→newest (chart-ready), capped last 20
+- [x] `exercise_history` and `medication_adherence_trend`: last 30 days, oldest→newest (chart-ready)
+- [x] `overall_progress_pct` = average of `latest_reps/15*100`, `current_streak_days/7*100`, `last7d_taken/last7d_scheduled*100`, each capped at 100 (CORE.md §7 — tuning constants, keep in sync with mobile). Refinement made while implementing: if an elder has zero active medications, `last7d_scheduled` is 0 — the medication component is excluded from the average (not divided by zero, not penalized) rather than the formula silently producing `NaN`.
+- [x] `engagement_streak_days` = consecutive calendar days with ≥1 of {exercise_logs, medication_logs, chair_test_results} row (broader than `exercise.current_streak_days`)
+- [x] Zero-data elder → zeros/empty arrays, 200
+- [x] Streaks use a one-day grace: if today has no activity yet, the streak counts from yesterday backward instead of zeroing out just because today isn't over.
+- [x] `unconfirmed_today` limitation, documented in code: `medication_logs` has no slot column, so on a partial day (e.g. 1 of 2 doses confirmed) the endpoint can't know *which* slot is still open — it takes the trailing N-unconfirmed `schedule_times` as a deterministic stand-in. Exact for the common single-dose-per-day case (matches the seed data); a real gap for multi-dose meds, worth a schema fix (a slot/scheduled-time column on `medication_logs`) if B6 needs it precisely.
 
-**Test:** seeded shows 8→12 + streak + progress % computed correctly; fresh elder returns empty shapes and `overall_progress_pct: 0`.
-**Depends on:** B5.1, B5.2 (adherence block lands with B6.2).
+**Test:** verified against the real seeded Eyang Uti data on Neon, math checked by hand: chair score `12/15*100=80`, exercise score `4/7*100≈57.14`, medication score `3/7*100≈42.86`, average `60` — matches the endpoint's `overall_progress_pct:60` exactly. `engagement_streak_days`, `unconfirmed_today` (`["Amlodipine 07:00"]`), and both 30-day history arrays all independently verified correct. Fresh elder → all-zero/empty shapes, `overall_progress_pct:0`, still 200. Cross-family access → 404.
+**Depends on:** B5.1, B5.2 (adherence block lands with B6.2 — but the seed script already writes medication_logs directly, so this was fully testable now).
 
 ---
 
