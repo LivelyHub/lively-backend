@@ -82,10 +82,10 @@ All 10 tables from CORE.md §1 (freeze after Day 1): `elders`, `family_members`,
 ### B2.2 Auth middleware — JWT + bot key `P0`
 - [x] `requireFamily` preHandler: validates `Authorization: Bearer <jwt>`, attaches `familyMemberId`; 401 on missing/invalid/expired (verified via Fastify `.inject()` against a throwaway test route: no token, bad token, expired token all 401; valid token 200 with correct `familyMemberId`)
 - [x] `requireBot` preHandler: validates `X-Bot-Key` against `BOT_SERVICE_KEY` (constant-time compare); 401 on mismatch (verified: no key, wrong key, and a same-length-but-wrong key — the case that actually exercises `timingSafeEqual` — all 401; correct key 200)
-- [ ] Route ownership: family routes only touch elders where `elder.family_member_id = familyMemberId`; cross-family → 404 (don't leak existence) — can't verify until B3 elder routes exist; guards are ready to attach
-- [ ] Route→guard mapping matches CORE §2's Consumer column exactly — verify as each route lands in B3–B8, not all at once here
+- [x] Route ownership: family routes only touch elders where `elder.family_member_id = familyMemberId`; cross-family → 404 (don't leak existence) — verified in B3 (`getOwnedElder` helper, exercised by all of B3.1-B3.3)
+- [x] Route→guard mapping matches CORE §2's Consumer column exactly for the routes that exist so far (`/elders*` → `requireFamily`); re-check this box as each remaining mobile/bot route lands in B4-B8
 
-**Test:** guard mechanics verified in isolation (see above). Full auth matrix in TESTING.md and the cross-family 404 check land once B3 exists.
+**Test:** guard mechanics verified in isolation (see above); cross-family 404 verified end-to-end in B3 against Neon (family B reading or patching family A's elder → 404, both by nonexistent-id and wrong-owner paths).
 **Depends on:** B2.1.
 
 ---
@@ -93,30 +93,30 @@ All 10 tables from CORE.md §1 (freeze after Day 1): `elders`, `family_members`,
 ## Epic B3 — Elder management `P0`
 
 ### B3.1 `POST /elders` — create `P0`
-- [ ] Body `{name, honorific, phone_e164, companion_key, health_flags}`
-- [ ] Validates: honorific non-empty (CORE §3), phone E.164, companion key ∈ {mbak_asih, mas_budi}, health flags known-list with free-text passthrough
-- [ ] Creates row linked to the authenticated family member; 201 with the full elder
-- [ ] Invalid companion / malformed phone → 400 with field-level detail
+- [x] Body `{name, honorific, phone_e164, companion_key, health_flags}`
+- [x] Validates: honorific non-empty (CORE §3), phone E.164, companion key ∈ {mbak_asih, mas_budi}, health flags known-list with free-text passthrough (implemented as: any non-empty string ≤60 chars, ≤20 flags — there's no canonical known-list in CORE.md/SPEC.md to validate against, so the "known list" is a mobile-side chip picker; backend just accepts free text with sane bounds)
+- [x] Creates row linked to the authenticated family member; 201 with the full elder (includes the joined `companion` object, not just `companion_id`, so mobile doesn't need a second call)
+- [x] Invalid companion / malformed phone → 400 with field-level detail
 
-**Test:** happy path 201; each validation failure 400; readable via B3.3.
+**Test:** happy path 201; bad phone 400 with `fields.phone_e164`; bad companion_key 400; no auth 401. All verified via curl against Neon.
 **Depends on:** B2.2.
 
 ### B3.2 `PATCH /elders/:id` — switch companion / honorific / pause `P0`
-- [ ] Partial body `{companion_key?, honorific?, health_flags?, paused?}` (`paused` needs a column — see Amendments; CORE §2 lists "pause" as this endpoint's job)
-- [ ] Only the owning family member can patch; others 404
-- [ ] Companion switch takes effect on the next bot context read; no past-conversation migration
-- [ ] Returns the updated elder
+- [x] Partial body `{companion_key?, honorific?, health_flags?, paused?}` (`paused` needs a column — see Amendments; CORE §2 lists "pause" as this endpoint's job)
+- [x] Only the owning family member can patch; others 404
+- [x] Companion switch takes effect on the next bot context read; no past-conversation migration (no conversation rows are touched — the switch is just an FK update)
+- [x] Returns the updated elder
 
-**Test:** patch each field; verify persistence; cross-family patch → 404.
+**Test:** cross-family patch → 404; owner patch of companion_key + honorific + paused together → 200, all three fields verified persisted via a follow-up GET. Verified against Neon.
 **Depends on:** B3.1.
 
 ### B3.3 `GET /elders` + `GET /elders/:id` `P0`
 ⚠️ **CORE.md gap** (Amendments): mobile Home can't render without reading elders back.
-- [ ] `GET /elders` → the family member's elders, each with companion joined + a status summary (last message at, open alert count)
-- [ ] `GET /elders/:id` → single elder, 404 if not owned
-- [ ] New account → `200 []`, not an error
+- [x] `GET /elders` → the family member's elders, each with companion joined + a status summary (last message at, open alert count)
+- [x] `GET /elders/:id` → single elder, 404 if not owned
+- [x] New account → `200 []`, not an error
 
-**Test:** new account → `[]`; seeded account → Eyang Uti with companion; cross-family → 404.
+**Test:** new account → `[]` (verified); seeded/created account → elder with companion joined (verified); cross-family → 404 (verified); malformed (non-UUID) id → 404, not a 500 (a raw non-UUID string would otherwise hit Postgres's `uuid` column type and throw — guarded with a format check before the query, verified with `/elders/not-a-uuid` → 404).
 **Depends on:** B3.1.
 
 ---
