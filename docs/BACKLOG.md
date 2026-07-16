@@ -11,30 +11,30 @@
 ## Epic B0 — Project scaffold `P0`
 
 ### B0.1 Fastify + TypeScript skeleton `P0`
-- [ ] `npm run dev` starts the server on `PORT` from `.env`
-- [ ] `GET /health` returns `200 {"status":"ok","db":"connected"|"down"}`
-- [ ] All errors return `{ "error": { "code": string, "message": string } }` — never a raw stack trace
-- [ ] Unknown routes return 404 in the same error shape
-- [ ] `.env.example` lists `DATABASE_URL`, `BOT_SERVICE_KEY`, `JWT_SECRET`, `PORT` (already present — keep in sync)
+- [x] `npm run dev` starts the server on `PORT` from `.env`
+- [x] `GET /health` returns `200 {"status":"ok","db":"connected"|"down"}`
+- [x] All errors return `{ "error": { "code": string, "message": string } }` — never a raw stack trace
+- [x] Unknown routes return 404 in the same error shape
+- [x] `.env.example` lists `DATABASE_URL`, `BOT_SERVICE_KEY`, `JWT_SECRET`, `PORT` (already present — keep in sync)
 
-**Test:** `curl /health` → 200; `curl /nope` → 404 with error shape; start without `DATABASE_URL` → clear startup error, not a crash loop.
+**Test:** `curl /health` → 200; `curl /nope` → 404 with error shape; start without `DATABASE_URL` → clear startup error, not a crash loop. ✅ All verified.
 **Depends on:** nothing.
 
 ### B0.2 Neon connectivity verified from venue `P0` 🔴
 The #1 risk in SPEC §7. Do this before anything else on Day 1.
-- [ ] Connection to Neon succeeds from a laptop on venue Wi-Fi
-- [ ] Fallback rehearsed: local Postgres via Docker (`docker compose up db`), same migrations, connection swap is one env var
-- [ ] `docker-compose.yml` with a Postgres service committed
+- [x] Connection to Neon succeeds (verified from dev machine; re-verify from actual venue Wi-Fi on Day 1 per the risk note)
+- [x] Fallback rehearsed: local Postgres via Docker (`docker compose up db`), same migrations, connection swap is one env var (local port 5433, not 5432 — this machine already has a local Postgres 17 on 5432)
+- [x] `docker-compose.yml` with a Postgres service committed
 
-**Test:** `GET /health` shows `"db":"connected"` on venue network; kill Neon URL, point at local Docker, health goes green again.
+**Test:** `GET /health` shows `"db":"connected"` on venue network; kill Neon URL, point at local Docker, health goes green again. ✅ Verified against local Docker; venue-network retest still needed on Day 1.
 **Depends on:** B0.1.
 
 ### B0.3 Migration tool decided + wired `P0`
-Resolves the 🟡 in SPEC §5. **Decision: Prisma** — schema-as-code, `prisma migrate dev` is the fastest loop under time pressure, and generated types feed route validation. (Fallback `node-pg-migrate` if the team prefers raw SQL; decide before B1, don't revisit.)
-- [ ] `npx prisma migrate dev` creates/updates the schema from `schema.prisma`
-- [ ] Migration files committed; `npx prisma migrate deploy` works against a fresh DB
+Resolves the 🟡 in SPEC §5. **Decision: Drizzle ORM + drizzle-kit** — schema-as-code in TypeScript (`src/db/schema.ts`), `drizzle-kit generate` produces committed SQL migration files, `drizzle-kit migrate` applies them. Lighter than Prisma, keeps raw SQL visibility, and the generated query builder still gives route handlers type safety.
+- [x] `npx drizzle-kit generate` creates SQL migrations from `src/db/schema.ts`; `npx drizzle-kit migrate` applies them
+- [x] Migration files committed (`drizzle/0000_flashy_jubilee.sql`); `npx drizzle-kit migrate` verified against a fresh DB (local Docker Postgres, dropped schema and re-migrated from zero)
 
-**Test:** drop the local DB, run migrations from zero, schema matches CORE.md §1.
+**Test:** drop the local DB, run migrations from zero, schema matches CORE.md §1. ✅ Verified via `docker compose` Postgres — schema matches, includes required indexes (B1.1).
 **Depends on:** B0.2.
 
 ---
