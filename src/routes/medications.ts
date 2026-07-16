@@ -7,6 +7,7 @@ import { requireFamily } from "../lib/auth-guards.js";
 import { HttpError, parseBody } from "../lib/http-errors.js";
 import { getOwnedElder } from "../lib/owned-elder.js";
 import { utcDayRange, utcTimeOfDay } from "../lib/dates.js";
+import { checkMissedDoses } from "../lib/missed-doses.js";
 
 const uuidSchema = z.string().uuid();
 const HH_MM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -110,9 +111,13 @@ export async function medicationRoutes(app: FastifyInstance) {
     return serializeMedication(updated!);
   });
 
-  app.get("/elders/:id/medications", { preHandler: requireFamily }, async (request) => {
+  app.get("/elders/:id/medications", { preHandler: requireFamily }, async (request, reply) => {
     const { id } = request.params as { id: string };
     await getOwnedElder(request.familyMemberId!, id);
+
+    await checkMissedDoses(id, (err: unknown) => {
+      reply.log.error(err, "push send failed");
+    });
 
     const activeMeds = await db
       .select()

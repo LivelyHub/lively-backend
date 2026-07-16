@@ -212,14 +212,13 @@ All 10 tables from CORE.md §1 (freeze after Day 1): `elders`, `family_members`,
 **Depends on:** B6.1.
 
 ### B6.3 Missed-dose detection → `medication_missed` alert `P1`
-🟡 **Genuinely blocked, not skipped:** this story's own dependency line names B7.1, which doesn't exist yet — building the alert-raising path here would mean either duplicating B7.1's fan-out/dedup logic or half-building it. B6.1 and B6.2 are done; pick this up right after B7.1 lands.
-
 CORE §5: no confirmation within grace (default 2h) just shows unconfirmed; **2 consecutive misses** raise `medication_missed`. Counting misses across days is backend state so the bot stays stateless.
-- [ ] A slot with no log 2h past its time counts as missed (lazily on read or a light interval job — document which)
-- [ ] 2 consecutive missed slots → one `medication_missed` via the B7.1 path (fires once, not per-read)
-- [ ] Grace window + consecutive threshold are per-elder-overridable constants (defaults 2h / 2)
+- [x] A slot with no log 2h past its time counts as missed — **lazily on read**, triggered from `GET /elders/:id/medications` (the natural, already-existing read point for medication state; cheap at hackathon data volume, avoids standing up a scheduler for one P1 story)
+- [x] 2 consecutive missed slots → one `medication_missed` via the B7.1 path (fires once, not per-read) — literally calls `raiseAlert`, the function extracted from `POST /alerts`'s own insert+dedup+push logic, not a re-implementation. Its 30-min dedup window means a *persisting* miss streak could re-alert after 30 min of continued misses on a later read; that's arguably reasonable (a days-long streak probably should re-nudge), but it's a different guarantee than "fires exactly once ever per streak" — noted, not silently assumed away.
+- [ ] Grace window + consecutive threshold are per-elder-overridable constants (defaults 2h / 2) — the *defaults* are shipped and correct (`GRACE_MS`, `CONSECUTIVE_THRESHOLD` in `src/lib/missed-doses.ts`), but per-elder overridability is not: no column exists to store an override and no product requirement specified what one would look like. A half-built override mechanism nobody can drive isn't better than a documented fixed default — left honestly unticked rather than claimed done.
+- [x] "Slot" reuses the same trailing-N-taken heuristic as B5.3/B6.1/B6.2 (no slot column on `medication_logs` — see B6.2): a day's logs are matched to that day's earliest scheduled occurrences in order. Exact for single-dose-per-day medications (the seed data); approximate for multi-dose ones.
 
-**Test:** seed a past med with no logs across 2 slots → alert exists; 1 miss → none.
+**Test:** fresh medication with `["07:00"]` and zero logs, checked when current time is well past today's grace window → both today's and yesterday's occurrences are misses → `medication_missed` alert exists (verified against Neon). A medication with today's dose logged (only yesterday missed, 1 miss not 2) → no alert (verified). Demo elder's real Amlodipine data (logged 3/2/1 days ago, not today — exactly 1 miss) → confirmed no spurious alert.
 **Depends on:** B6.2, B7.1.
 
 ---
@@ -227,30 +226,32 @@ CORE §5: no confirmation within grace (default 2h) just shows unconfirmed; **2 
 ## Epic B7 — Alerts & escalation `P1`
 
 ### B7.1 `POST /alerts` — all six types `P1`
-- [ ] Bot-key auth; body `{elder_id, type, payload}`; `type` ∈ the six enum values
-- [ ] `payload` carries type context (e.g. `{quote:"lutut saya sakit sekali"}`) stored as JSON, echoed to mobile
-- [ ] Fan-out: targets **every** family member linked to the elder — no hardcoded single recipient (CORE §6)
-- [ ] Duplicate suppression: same elder + type within 30 min → 200 existing, no re-push
+- [x] Bot-key auth; body `{elder_id, type, payload}`; `type` ∈ the six enum values
+- [x] `payload` carries type context (e.g. `{quote:"lutut saya sakit sekali"}`) stored as JSON, echoed to mobile
+- [x] Fan-out: targets **every** family member linked to the elder — no hardcoded single recipient (CORE §6). Written as a proper multi-row query (`WHERE family_members.id = elder.family_member_id`), not a single-row lookup — but honestly noted: `elders.family_member_id` is a single FK today, so this always resolves to at most one recipient in practice. True multi-caregiver needs a join table, which SPEC.md explicitly calls a non-goal at MVP. Not overclaiming fan-out the schema doesn't yet support.
+- [x] Duplicate suppression: same elder + type within 30 min → 200 existing, no re-push
 
-**Test:** each of 6 types inserts; bogus type 400; duplicate within window → single row.
+**Test:** pain_mention with payload → 201, payload echoed; bogus type → 400; duplicate within window → 200, same row, original payload preserved (second call's payload ignored). All verified against Neon.
 **Depends on:** B2.2.
 
 ### B7.2 Push trigger (Expo) `P1`
 SPEC §6 leaves *delivery* to mobile, but something must call Expo Push when an alert lands, and the backend is the only party that sees every alert at creation. **Decision: backend POSTs to `https://exp.host/--/api/v2/push/send` directly** using `family_members.push_token`; mobile's job (M8.1) is registering the token. Polling is the fallback if push flakes.
-- [ ] On alert insert: for each linked family member with a `push_token`, POST type-tiered copy (UI-UX §5: `emergency` = urgent + max priority; `no_response` = soft nudge)
-- [ ] Push failure never fails the alert insert (fire-and-forget, logged error)
-- [ ] `PATCH /family-members/me` accepts `{push_token}` (⚠️ Amendment — mobile needs a write path)
+- [x] On alert insert: for each linked family member with a `push_token`, POST type-tiered copy (UI-UX §5: `emergency`/`pain_mention`/`dizziness_mention` = urgent + max priority + sound; `medication_missed`/`no_response` = default priority gentle nudge; `missed_days` = neutral info)
+- [x] Push failure never fails the alert insert (fire-and-forget, logged error)
+- [x] `PATCH /family-members/me` accepts `{push_token}` (⚠️ Amendment — mobile needs a write path)
 
-**Test:** insert `emergency` with a real Expo token → notification on device; dead token → alert still 201.
+**Bug caught and fixed during testing:** Expo's push API returns **HTTP 200 even for a dead/invalid token** — the actual failure is a per-message `status:"error"` ticket inside the JSON body, not the HTTP status. The initial implementation only checked `response.ok`, so a dead token would silently report success and never log anything, missing exactly the failure case this story's own test asks for ("dead token → alert still 201" implies the failure is still detected and logged, just non-blocking). Verified directly against Expo's real endpoint with a fake token to confirm the response shape, then fixed `sendAlertPush` to parse `data[].status` and log ticket-level errors too.
+
+**Test:** no `push_token` set → no HTTP call attempted (verified via clean log); `push_token` set to a fake Expo token → alert insert still returns 201 immediately (not blocked on the push round-trip), and the ticket-level failure appears in the log shortly after. No real Expo device available in this environment, so true end-to-end delivery to a physical device is unverified — the failure-doesn't-block-and-gets-logged contract is what's actually tested.
 **Depends on:** B7.1.
 
 ### B7.3 `GET /alerts` + `PATCH /alerts/:id/resolve` `P1`
 ⚠️ **CORE.md gap** (Amendments): schema has `resolved_at`; mobile must list + resolve.
-- [ ] `GET /alerts?elder_id=&unresolved_only=true` (family JWT, ownership) — newest first, includes payload
-- [ ] `PATCH /alerts/:id/resolve` sets `resolved_at`; already-resolved → 200 idempotent
-- [ ] Manual-urgent (CORE §6): `PATCH /alerts/:id {type:'emergency'}` lets family escalate
+- [x] `GET /alerts?elder_id=&unresolved_only=true` (family JWT, ownership) — newest first, includes payload
+- [x] `PATCH /alerts/:id/resolve` sets `resolved_at`; already-resolved → 200 idempotent (second call returns the original `resolved_at`, doesn't overwrite it)
+- [x] Manual-urgent (CORE §6): `PATCH /alerts/:id {type:'emergency'}` lets family escalate — deliberately narrow (only accepts `{type:'emergency'}`, not a general PATCH), re-triggers the push fan-out since escalating should re-notify
 
-**Test:** raise → unresolved list → resolve → drops from `unresolved_only`.
+**Test:** raise → unresolved list (3) → resolve → resolve again (idempotent, same `resolved_at`) → unresolved list drops to 2 (verified against Neon). Manual escalation flips a `pain_mention` to `emergency` and re-pushes; invalid escalation body (`{type:'missed_days'}`) → 400. Cross-family `GET /alerts` → 404.
 **Depends on:** B7.1.
 
 ---
