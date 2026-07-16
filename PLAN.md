@@ -24,14 +24,16 @@
 **Day 2 — 2026-07-17 — bot-facing endpoints + auth**
 - Implement `POST /bot/inbound`, `POST /bot/outbound`, `POST /assessments/chair-test`, `POST /exercise-logs`, `POST /medications`, `POST /medication-logs`, `POST /alerts` (including `medication_missed`, `no_response`, `emergency` types).
 - Wire JWT auth for mobile, static-key auth for bot.
+- Extend `GET /elders/:id/progress` with `overall_progress_pct`, `engagement_streak_days`, `exercise_history`, `medication_adherence_trend` (CORE.md §7) — cheap, same query as the existing aggregate, do it same day as B5.3.
 - Integration pass with `lively-mobile` and `lively-bot` against a shared dev DB.
 
 **Day 3 — 2026-07-18 — buffer, polish, submit**
 - Fix integration breakage found on Day 2.
 - Seed demo elder "Eyang Uti" with mock chair-test history (8 → 12) for the Progress screen chart.
+- If time allows: `GET /elders/:id/report?period=week|month` (the performance report — genuinely new work, not a reuse of B5.3). Build only after the P0 spine is green.
 - Freeze API — no schema changes after mid-day. Submit with margin before deadline.
 
 ## Honest feasibility verdict
 Achievable in this window **if** the schema is frozen by end of Day 1 — the biggest schedule risk is mobile/bot/backend renegotiating the data shape mid-hackathon, which cascades into all three repos. Mitigation: treat [CORE.md](CORE.md) as locked once Day 1 ends; any change requires updating all four copies before anyone continues.
 
-Cut-order if time compresses: drop `titipan_messages` and `alerts` (missed-day push) last-in-first-cut — the irreducible core is elder creation, conversation logging, and chair-test recording, since those three carry the demo's "magic moment."
+Cut-order if time compresses: drop `titipan_messages` and `alerts` (missed-day push) last-in-first-cut, then `GET /elders/:id/report` (performance report) — it's new-feedback scope layered on top of an already-tight window, and the progress bar/streak/graphs already ship the bulk of the gamification value cheaply via B5.3. The irreducible core stays elder creation, conversation logging, and chair-test recording.

@@ -39,7 +39,7 @@ This is a public hackathon repo. Commit messages and PR descriptions must read a
 
 ## Code + environment conventions
 
-- TypeScript, Fastify, Prisma (per B0.3). Match existing file style; don't reformat code you aren't changing.
+- TypeScript, Fastify, Drizzle ORM (per B0.3). Match existing file style; don't reformat code you aren't changing.
 - Comments only where they state a non-obvious constraint. No comments narrating what obvious code does.
 - Validate every route (zod/TypeBox) — no unvalidated input reaches a query (B9.1).
 - **Secrets:** env vars only. `.env.example` documents names, never values. Never commit a real `DATABASE_URL`, `BOT_SERVICE_KEY`, or `JWT_SECRET`. Grep before every push.

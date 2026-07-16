@@ -2,7 +2,7 @@
 
 > The backend half of Lively (Fastify + Neon Postgres). Derived from [CORE.md](../CORE.md) (schema + API contract, source of truth in this repo), [SPEC.md](../SPEC.md) (MVP scope), [PLAN.md](../PLAN.md) (schedule + cut-order). The mobile backlog lives in `lively-mobile/docs/BACKLOG.md`; the two share the CORE.md contract.
 
-**Priorities:** **P0** demo spine · **P1** credible demo · **P2** polish. Cut-order (PLAN.md): titipan and missed-day alerts are last-in-first-cut; the irreducible core is elder creation, conversation logging, and chair-test recording.
+**Priorities:** **P0** demo spine · **P1** credible demo · **P2** polish. Cut-order (PLAN.md): titipan and missed-day alerts drop first, then B10 (performance report); the irreducible core is elder creation, conversation logging, and chair-test recording.
 
 **How to use this file:** work stories in priority order, top to bottom. Tick each acceptance box **in the same PR that satisfies it** — this file is the shared, checkable record of progress. A story is done only when its boxes are ticked *and* its test steps (in [TESTING.md](TESTING.md)) pass. See [../AGENTS.md](../AGENTS.md) for the working agreement.
 
@@ -167,20 +167,27 @@ All 10 tables from CORE.md §1 (freeze after Day 1): `elders`, `family_members`,
 **Depends on:** B2.2.
 
 ### B5.3 `GET /elders/:id/progress` — Progress aggregate `P0`
-⚠️ **CORE.md gap** (Amendments): SPEC §3 promises "backend aggregates → mobile renders" but no read endpoint exists. One aggregate call = one mobile skeleton.
+⚠️ **CORE.md gap** (Amendments): SPEC §3 promises "backend aggregates → mobile renders" but no read endpoint exists. One aggregate call = one mobile skeleton. Also the data source for the gamification screen (CORE.md §7): progress bar, streak, and graphs.
 - [ ] Family JWT + ownership
 - [ ] Response:
   ```json
   {
+    "overall_progress_pct": 78,
+    "engagement_streak_days": 5,
     "chair_tests": [{"reps": 8, "recorded_at": "..."}],
     "exercise": {"current_streak_days": 3, "this_week": ["2026-07-14"], "total": 12},
-    "medication_adherence": {"last7d_taken": 6, "last7d_scheduled": 7, "unconfirmed_today": ["Amlodipine 19:00"]}
+    "exercise_history": [{"date": "2026-07-14", "completed": true}],
+    "medication_adherence": {"last7d_taken": 6, "last7d_scheduled": 7, "unconfirmed_today": ["Amlodipine 19:00"]},
+    "medication_adherence_trend": [{"date": "2026-07-14", "taken": 1, "scheduled": 1}]
   }
   ```
 - [ ] Chair tests oldest→newest (chart-ready), capped last 20
+- [ ] `exercise_history` and `medication_adherence_trend`: last 30 days, oldest→newest (chart-ready)
+- [ ] `overall_progress_pct` = average of `latest_reps/15*100`, `current_streak_days/7*100`, `last7d_taken/last7d_scheduled*100`, each capped at 100 (CORE.md §7 — tuning constants, keep in sync with mobile)
+- [ ] `engagement_streak_days` = consecutive calendar days with ≥1 of {exercise_logs, medication_logs, chair_test_results} row (broader than `exercise.current_streak_days`)
 - [ ] Zero-data elder → zeros/empty arrays, 200
 
-**Test:** seeded shows 8→12 + streak; fresh elder returns empty shapes.
+**Test:** seeded shows 8→12 + streak + progress % computed correctly; fresh elder returns empty shapes and `overall_progress_pct: 0`.
 **Depends on:** B5.1, B5.2 (adherence block lands with B6.2).
 
 ---
@@ -284,6 +291,22 @@ SPEC §6 leaves *delivery* to mobile, but something must call Expo Push when an 
 
 ---
 
+## Epic B10 — Performance report `P1` 🟡 first-in-line to cut
+Post-kickoff addition (mentor/judge feedback: gamification makes checking on Eyang feel like a shared win, not a compliance chore). The progress bar/streak/graphs in B5.3 already deliver most of that value cheaply — this epic is the one genuinely new endpoint, so it's the first thing to drop if Day 3 runs short (PLAN.md cut-order).
+
+### B10.1 `GET /elders/:id/report?period=week|month` `P1`
+- [ ] Family JWT + ownership; `period` defaults to `week`
+- [ ] Response matches CORE.md §7 shape: `period`, `range`, `headline`, `consistency_pct`, `exercise`, `medication_adherence_pct`, `chair_test_trend`, `highlights[]`, `areas_needing_support[]`
+- [ ] `consistency_pct` = % of days in range with ≥1 engagement row (same definition as B5.3's streak, windowed)
+- [ ] `chair_test_trend` ∈ `improving`/`stable`/`declining`, comparing first vs. last chair-test result in range
+- [ ] Copy tone: `headline` and `highlights` always lead positive; `areas_needing_support` is encouragement-framed, never guilt ("could use a nudge on evening doses", not "missed medication")
+- [ ] Zero-data elder → `consistency_pct: 0`, empty arrays, still 200 with a gentle headline ("Eyang Uti is just getting started")
+
+**Test:** seeded week → headline + highlights match seed data; fresh elder → zero-state copy, not an error; month vs week windows produce different `range`.
+**Depends on:** B5.3.
+
+---
+
 ## Contract stubs — other repos consume these (not built here)
 
 So nothing in CORE.md is orphaned:
@@ -332,10 +355,12 @@ CORE.md's rule: schema/endpoint changes update all four repo copies, no local wo
 | §2 `POST /exercise-logs` | B5.2 |
 | §2 `POST /medications` · `/medication-logs` | B6.1 · B6.2 |
 | §2 `POST /alerts` (6 types) | B7.1 |
+| §2 `GET /elders/:id/progress` · `/report` | B5.3 · B10.1 |
 | §2 auth model (JWT + BOT_SERVICE_KEY) | B2.1, B2.2 |
 | §3 CompanionConfig contract | B4.1 (shape) |
 | §4 Human Texting Engine | Bot stub; B4.2 supports splits |
 | §5 Medicine reminder (grace 2h, 2-miss alert) | B6.3, bot stub |
 | §6 pain/dizziness immediate · no_response 12h · emergency · fan-out | B7.1, B7.2; detection = bot stub |
+| §7 progress bar · streak · graphs · performance report | B5.3, B10.1 |
 | Config & secrets | B0.1 (.env.example), B9.3 |
 | SPEC §8 submission gate | [SUCCESS-CRITERIA.md](SUCCESS-CRITERIA.md) §3 |

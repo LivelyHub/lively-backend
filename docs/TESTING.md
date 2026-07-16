@@ -12,10 +12,11 @@ tests/
   auth.test.ts          # B2 — register/login + full auth matrix
   elders.test.ts        # B3 — CRUD + ownership
   conversation.test.ts  # B4 — inbound context, outbound splits, pagination
-  progress.test.ts      # B5 — chair test, exercise idempotency, aggregate
+  progress.test.ts      # B5 — chair test, exercise idempotency, aggregate, progress %, streak
   medications.test.ts   # B6 — CRUD, dose logging, missed-dose alert
   alerts.test.ts        # B7 — 6 types, dedup, resolve, fan-out query
   titipan.test.ts       # B8 — send, queue, delivered
+  report.test.ts        # B10 — week/month windows, trend math, zero-state copy
 ```
 
 **Per-endpoint minimum (every route gets all four):**
@@ -41,7 +42,7 @@ Every route × four credential columns. Automate as a table-driven test in `auth
 |---|---|---|---|---|
 | `POST /auth/register`, `/auth/login` | 200/201 | n/a | n/a | n/a |
 | `POST /elders`, `PATCH /elders/:id`, `GET /elders(/:id)` | 401 | 401 | ✅ own only, else 404 | 401 |
-| `GET /elders/:id/conversation`, `/progress`, `/medications` | 401 | 401 | ✅ own | 401 |
+| `GET /elders/:id/conversation`, `/progress`, `/medications`, `/report` | 401 | 401 | ✅ own | 401 |
 | `POST /elders/:id/titipan` | 401 | 401 | ✅ own | 401 |
 | `POST /medications`, `PATCH /medications/:id` | 401 | 401 | ✅ own | 401 |
 | `GET /alerts`, `PATCH /alerts/:id/resolve` | 401 | 401 | ✅ own | 401 |

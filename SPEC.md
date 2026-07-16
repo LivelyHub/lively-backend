@@ -31,6 +31,7 @@
 - Medication CRUD + dose logging — `POST /medications`, `POST /medication-logs`
 - Alert creation (missed-day, pain, dizziness, medication-missed, no-response, emergency) — `POST /alerts`
 - Titipan (family message relay) — `POST /elders/:id/titipan`
+- Gamification & family reporting (added post-kickoff, per mentor/judge feedback — see CORE.md §7): progress bar, engagement streak, and progress graphs via `GET /elders/:id/progress`; weekly/monthly performance summary via `GET /elders/:id/report`. Reuses existing tables, no schema change. This is what makes the Progress screen feel like a shared win instead of a compliance checklist for the family.
 
 **Explicitly NOT in MVP** → §6.
 
@@ -55,6 +56,7 @@ Migrations: 🟡 TBD — pick `node-pg-migrate` or Prisma on Day 1; whichever sh
 ## 7. Risks & unknowns
 - 🔴 Venue Wi-Fi blocking outbound Postgres connections to Neon — verify on Day 1 morning, before building anything else. Fallback: local Postgres via Docker, migrate connection string at demo time.
 - 🟡 Schema churn mid-hackathon as mobile/bot discover missing fields — mitigate by freezing [CORE.md](CORE.md) schema by end of Day 1.
+- 🔴 Gamification scope landed after Day 1 kickoff with ~2 days left on the clock. Mitigated by design: no new tables, everything computed from existing rows. `GET /elders/:id/report` (the performance report) is the one genuinely new endpoint — see PLAN.md cut-order if time compresses.
 - 🟢 Fastify + Neon is a well-trodden combo — low framework risk.
 
 ## 8. Submission checklist (mapped to THIS event's deliverables)

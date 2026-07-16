@@ -11,11 +11,12 @@
 | **B2 Auth** | Register/login issue working JWTs; the full auth matrix (every route × every credential type) passes; cross-family access returns 404 everywhere. |
 | **B3 Elders** | Create, read (list + single), and patch work end-to-end; pause flag round-trips into `POST /bot/inbound` responses. |
 | **B4 Conversation** | Bot logs in/out messages; history pages with `before`, deltas poll with `after`; a curl-posted inbound appears in a `GET /conversation` within the poll window. |
-| **B5 Assessments** | Chair tests and exercise logs insert (exercise idempotent per day); `GET /progress` returns chart-ready data; empty elder returns empty shapes, not errors. |
+| **B5 Assessments** | Chair tests and exercise logs insert (exercise idempotent per day); `GET /progress` returns chart-ready data plus `overall_progress_pct` and `engagement_streak_days` (CORE.md §7); empty elder returns empty shapes, not errors. |
 | **B6 Medications** | Family CRUD + per-slot today status works; dose-logging idempotent per slot; 2 consecutive missed slots raise exactly one `medication_missed`. |
 | **B7 Alerts** | All 6 types insert with duplicate suppression; a real Expo push arrives on a device for `emergency`; list + resolve work; fan-out queries the relationship. |
 | **B8 Titipan** | Send → bot queue → mark delivered round-trips; `delivered_at` set. |
 | **B9 Hardening** | Every route validates input (400s with field detail); deployed URL passes the full smoke script from a phone on cellular. |
+| **B10 Performance report** | `GET /report?period=week\|month` returns the CORE.md §7 shape with correct trend/consistency math; zero-data elder gets a gentle 200, not an error. First cut if Day 3 runs short. |
 
 ## 2. Integration success (what lets the team demo)
 
