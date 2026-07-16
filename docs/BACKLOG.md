@@ -70,21 +70,22 @@ All 10 tables from CORE.md §1 (freeze after Day 1): `elders`, `family_members`,
 
 ### B2.1 Family register + login (JWT) `P0`
 ⚠️ **CORE.md gap** (see Amendments): CORE §2 says JWT is "issued by backend" but lists no auth endpoints. Adds `POST /auth/register`, `POST /auth/login`.
-- [ ] `POST /auth/register` `{email, name, password}` → `family_members` row (hash with `bcryptjs` — decided in B1.2, already a dependency, don't introduce a second hashing lib; `password_hash` column landed in B1.1) → `{token, familyMember}`
-- [ ] `POST /auth/login` `{email, password}` → `{token, familyMember}`; wrong password → 401
-- [ ] JWT signed with `JWT_SECRET`, carries `family_member_id`, expiry ≥ 72h
-- [ ] Duplicate email on register → 409 with error shape
+- [x] `POST /auth/register` `{email, name, password}` → `family_members` row (hash with `bcryptjs` — decided in B1.2, already a dependency, don't introduce a second hashing lib; `password_hash` column landed in B1.1) → `{token, familyMember}`
+- [x] `POST /auth/login` `{email, password}` → `{token, familyMember}`; wrong password → 401 (same message as unknown email, so the endpoint doesn't confirm which emails are registered)
+- [x] JWT signed with `JWT_SECRET`, carries `family_member_id`, expiry ≥ 72h (7d, so judges don't get logged out mid-demo)
+- [x] Duplicate email on register → 409 with error shape (bug caught in testing: Drizzle wraps the underlying `pg` unique-violation error in a `DrizzleQueryError`, so the real Postgres error code lives on `.cause`, not the top-level error — `isUniqueViolation` walks `.cause` recursively)
+- [x] Request validation via zod on both routes → 400 with `fields` detail on bad input (gets B9.1's contract right from the start instead of retrofitting)
 
-**Test:** register → login → decoded token has the right id; wrong password 401; TESTING.md auth matrix.
+**Test:** register → login → decoded token has the right id (verified via curl against Neon); wrong password 401; unknown email 401 with identical message; duplicate email 409; short password 400 with `fields.password`. TESTING.md auth matrix.
 **Depends on:** B1.1.
 
 ### B2.2 Auth middleware — JWT + bot key `P0`
-- [ ] `requireFamily` preHandler: validates `Authorization: Bearer <jwt>`, attaches `familyMemberId`; 401 on missing/invalid/expired
-- [ ] `requireBot` preHandler: validates `X-Bot-Key` against `BOT_SERVICE_KEY` (constant-time compare); 401 on mismatch
-- [ ] Route ownership: family routes only touch elders where `elder.family_member_id = familyMemberId`; cross-family → 404 (don't leak existence)
-- [ ] Route→guard mapping matches CORE §2's Consumer column exactly
+- [x] `requireFamily` preHandler: validates `Authorization: Bearer <jwt>`, attaches `familyMemberId`; 401 on missing/invalid/expired (verified via Fastify `.inject()` against a throwaway test route: no token, bad token, expired token all 401; valid token 200 with correct `familyMemberId`)
+- [x] `requireBot` preHandler: validates `X-Bot-Key` against `BOT_SERVICE_KEY` (constant-time compare); 401 on mismatch (verified: no key, wrong key, and a same-length-but-wrong key — the case that actually exercises `timingSafeEqual` — all 401; correct key 200)
+- [ ] Route ownership: family routes only touch elders where `elder.family_member_id = familyMemberId`; cross-family → 404 (don't leak existence) — can't verify until B3 elder routes exist; guards are ready to attach
+- [ ] Route→guard mapping matches CORE §2's Consumer column exactly — verify as each route lands in B3–B8, not all at once here
 
-**Test:** full auth matrix in TESTING.md; family A requesting family B's elder → 404.
+**Test:** guard mechanics verified in isolation (see above). Full auth matrix in TESTING.md and the cross-family 404 check land once B3 exists.
 **Depends on:** B2.1.
 
 ---
