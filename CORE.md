@@ -32,7 +32,7 @@ exercise_logs     (id, elder_id, completed_at, method['reply'|'emoji'|'photo'])
 medications       (id, elder_id, name, dosage, schedule_times[], active, created_at)
 medication_logs   (id, medication_id, elder_id, taken_at, method['reply'|'emoji'|'photo'])
 alerts            (id, elder_id, type['missed_days'|'pain_mention'|'dizziness_mention'|'medication_missed'|'no_response'|'emergency'], payload, created_at, resolved_at)
-titipan_messages  (id, elder_id, family_member_id, body, delivered_at)
+titipan_messages  (id, elder_id, family_member_id, body, delivered_at, created_at)
 ```
 
 ### 2. API contract (Fastify, `lively-backend`)

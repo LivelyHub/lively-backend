@@ -259,15 +259,17 @@ SPEC §6 leaves *delivery* to mobile, but something must call Expo Push when an 
 ## Epic B8 — Titipan (family relay) `P2`
 
 ### B8.1 `POST /elders/:id/titipan` `P2`
-- [ ] Family JWT + ownership; body `{body}` (≤500 chars); inserts `delivered_at:null`
-- [ ] 201 `{id, body, delivered_at:null}`
+- [x] Family JWT + ownership; body `{body}` (≤500 chars); inserts `delivered_at:null`
+- [x] 201 `{id, body, delivered_at:null}` (full row returned, a superset of the documented shape)
+
+**Schema gap found and fixed:** `titipan_messages` had no `created_at` column (matching CORE.md's original sketch), but B8.2 needs "undelivered oldest-first" ordering and UUIDs (`gen_random_uuid()`) aren't chronologically sortable — there was no way to implement "oldest-first" correctly without one. Added `created_at timestamptz not null default now()` via a new migration (table was empty, applied to Neon and verified from a fully-reset local DB). Purely additive and internal: doesn't change what `lively-bot`/`lively-mobile` need to send, so safe post-freeze. Mirrored to `lively-mobile/CORE.md`.
 
 ### B8.2 Bot delivery queue `P2`
 ⚠️ **CORE.md gap** (Amendments): the bot must fetch undelivered titipan and mark them sent.
-- [ ] `GET /bot/titipan-queue?elder_id=` (bot key) → undelivered oldest-first
-- [ ] `PATCH /bot/titipan/:id/delivered` sets `delivered_at`
+- [x] `GET /bot/titipan-queue?elder_id=` (bot key) → undelivered oldest-first
+- [x] `PATCH /bot/titipan/:id/delivered` sets `delivered_at`; idempotent (second call returns the original `delivered_at`, doesn't overwrite it)
 
-**Test:** post → queue → mark delivered → gone from queue, `delivered_at` set.
+**Test:** two sends → queue shows both, oldest first (verified against Neon); mark first delivered → drops from queue, second call idempotent; unknown elder on queue fetch → 404; unknown titipan on delivered mark → 404; cross-family send → 404.
 **Depends on:** B8.1.
 
 ---

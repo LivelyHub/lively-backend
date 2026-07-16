@@ -15,6 +15,13 @@
       "when": 1784216203050,
       "tag": "0001_b1_enums_and_amendments",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784224595172,
+      "tag": "0002_b8_titipan_created_at",
+      "breakpoints": true
     }
   ]
 }

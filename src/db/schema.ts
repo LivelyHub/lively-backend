@@ -153,4 +153,5 @@ export const titipanMessages = pgTable("titipan_messages", {
     .references(() => familyMembers.id),
   body: text("body").notNull(),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
