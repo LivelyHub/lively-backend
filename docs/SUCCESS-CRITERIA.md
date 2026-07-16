@@ -7,7 +7,7 @@
 | Epic | Done when |
 |---|---|
 | **B0 Scaffold** | Server boots from `.env`; `/health` reports DB status; all errors use the standard shape; Neon reachable from venue Wi-Fi **or** Docker fallback rehearsed; migrations run from zero. |
-| **B1 Schema & seed** | All 10 CORE.md tables migrate from empty; enum/FK constraints reject bad data; `npm run seed` is idempotent and produces Eyang Uti with the 8→12 chair-test arc, conversation history, streak, and one medication. |
+| **B1 Schema & seed** | All 10 CORE.md tables migrate from empty (verified on Neon and a from-zero local Docker DB); enum/FK/unique constraints reject bad data (verified: bogus enum value and duplicate `companions.key` both rejected by Postgres); `npm run seed` is idempotent (verified: second run is a no-op) and produces Eyang Uti with the 8→12 chair-test arc, conversation history, streak, and one medication. |
 | **B2 Auth** | Register/login issue working JWTs; the full auth matrix (every route × every credential type) passes; cross-family access returns 404 everywhere. |
 | **B3 Elders** | Create, read (list + single), and patch work end-to-end; pause flag round-trips into `POST /bot/inbound` responses. |
 | **B4 Conversation** | Bot logs in/out messages; history pages with `before`, deltas poll with `after`; a curl-posted inbound appears in a `GET /conversation` within the poll window. |

@@ -43,23 +43,25 @@ Resolves the 🟡 in SPEC §5. **Decision: Drizzle ORM + drizzle-kit** — schem
 
 ### B1.1 Full CORE.md schema `P0`
 All 10 tables from CORE.md §1 (freeze after Day 1): `elders`, `family_members`, `companions`, `conversations`, `chair_test_results`, `exercise_logs`, `medications`, `medication_logs`, `alerts`, `titipan_messages`.
-- [ ] Every table + column from CORE.md §1 exists, including enums/checks: `conversations.direction ∈ {in,out}`, `alerts.type ∈ {missed_days, pain_mention, dizziness_mention, medication_missed, no_response, emergency}`, `exercise_logs.method` and `medication_logs.method ∈ {reply, emoji, photo}`, `chair_test_results.source = 'chat'`
-- [ ] Foreign keys: `elders.family_member_id → family_members`, `elders.companion_id → companions`, child tables → `elders`, `medication_logs.medication_id → medications`
-- [ ] `elders.health_flags` and `medications.schedule_times` are array columns
-- [ ] Indexes on hot reads: `conversations(elder_id, created_at)`, `alerts(elder_id, created_at)`, `medication_logs(medication_id, taken_at)`
+- [x] Every table + column from CORE.md §1 exists, including enums/checks: `conversations.direction ∈ {in,out}`, `alerts.type ∈ {missed_days, pain_mention, dizziness_mention, medication_missed, no_response, emergency}`, `exercise_logs.method` and `medication_logs.method ∈ {reply, emoji, photo}`, `chair_test_results.source = 'chat'`. Enforced as real Postgres enum types (`pgEnum`), not just TypeScript-level narrowing — a bogus value is rejected by the DB itself, not just the app layer.
+- [x] Foreign keys: `elders.family_member_id → family_members`, `elders.companion_id → companions`, child tables → `elders`, `medication_logs.medication_id → medications`
+- [x] `elders.health_flags` and `medications.schedule_times` are array columns
+- [x] Indexes on hot reads: `conversations(elder_id, created_at)`, `alerts(elder_id, created_at)`, `medication_logs(medication_id, taken_at)`
+- [x] Unique constraints added beyond the CORE.md sketch, needed for correctness: `companions.key` (exactly one row per persona — the seed script and any future lookup-by-persona code need this to be safe) and `elders.phone_e164` (`POST /bot/inbound` resolves an elder by phone per CORE.md §2 — without uniqueness that lookup is ambiguous)
+- [x] Applied amendments #2 (`family_members.password_hash`) and #4 (`elders.paused`) from below — both are schema changes B2/B3 need, better landed now before the freeze than as a second migration mid-epic
 
-**Test:** migration from zero passes; inserting an alert with a bogus type fails; TESTING.md schema checklist.
+**Test:** migration from zero passes (verified via local Docker, full reset including Drizzle's migration-tracking schema); inserting an alert with a bogus type fails (verified: `ERROR: invalid input value for enum alert_type`); TESTING.md schema checklist.
 **Depends on:** B0.3.
 
 ### B1.2 Seed script — companions + demo elder `P0`
-- [ ] `npm run seed` is idempotent (safe to re-run)
-- [ ] Seeds both companions: `mbak_asih` ("Mbak Asih"), `mas_budi` ("Mas Budi")
-- [ ] Seeds a demo family member (known email/password for demo login) + elder "Eyang Uti" (honorific "Eyang Uti", health flags `["knee_pain"]`)
-- [ ] Chair-test history: ~4 results climbing 8 → 9 → 11 → 12 (the Progress chart's story arc)
-- [ ] ~10 seeded conversation messages (mixed in/out) so Chat Monitor isn't empty
-- [ ] A few exercise logs (streak of 3+) and one active medication ("Amlodipine", `["07:00"]`) with logs
+- [x] `npm run seed` is idempotent (safe to re-run) — guarded by a lookup on `elders.phone_e164` (now unique per B1.1); companions/family member use `onConflictDoNothing` on their own unique columns
+- [x] Seeds both companions: `mbak_asih` ("Mbak Asih"), `mas_budi` ("Mas Budi")
+- [x] Seeds a demo family member (`demo@lively.app` / `Demo1234!`, hashed with bcryptjs — pick this up in B2.1, don't introduce a second hashing lib) + elder "Eyang Uti" (honorific "Eyang Uti", health flags `["knee_pain"]`)
+- [x] Chair-test history: ~4 results climbing 8 → 9 → 11 → 12 (the Progress chart's story arc)
+- [x] ~10 seeded conversation messages (mixed in/out) so Chat Monitor isn't empty
+- [x] A few exercise logs (streak of 3+) and one active medication ("Amlodipine", `["07:00"]`) with logs
 
-**Test:** run seed twice → no duplicates; `GET /elders/:id/conversation` returns seeded messages; progress shows 8→12.
+**Test:** run seed twice → no duplicates (verified: second run logs "already seeded, skipping"); row counts verified (2 companions, 1 family member, 1 elder, 4 chair tests, 10 conversations, 4 exercise logs, 1 medication, 3 medication logs); password hash round-trips through bcrypt.compare. `GET /elders/:id/conversation` returning seeded messages and progress showing 8→12 will be verified once B3/B4/B5 routes exist.
 **Depends on:** B1.1.
 
 ---
@@ -68,7 +70,7 @@ All 10 tables from CORE.md §1 (freeze after Day 1): `elders`, `family_members`,
 
 ### B2.1 Family register + login (JWT) `P0`
 ⚠️ **CORE.md gap** (see Amendments): CORE §2 says JWT is "issued by backend" but lists no auth endpoints. Adds `POST /auth/register`, `POST /auth/login`.
-- [ ] `POST /auth/register` `{email, name, password}` → `family_members` row (argon2/bcrypt hash — needs `password_hash` column, see Amendments) → `{token, familyMember}`
+- [ ] `POST /auth/register` `{email, name, password}` → `family_members` row (hash with `bcryptjs` — decided in B1.2, already a dependency, don't introduce a second hashing lib; `password_hash` column landed in B1.1) → `{token, familyMember}`
 - [ ] `POST /auth/login` `{email, password}` → `{token, familyMember}`; wrong password → 401
 - [ ] JWT signed with `JWT_SECRET`, carries `family_member_id`, expiry ≥ 72h
 - [ ] Duplicate email on register → 409 with error shape
@@ -330,9 +332,9 @@ CORE.md's rule: schema/endpoint changes update all four repo copies, no local wo
 | # | Change | Why | Story |
 |---|---|---|---|
 | 1 | Add `POST /auth/register`, `POST /auth/login` | JWT "issued by backend" with no issuing endpoint | B2.1 |
-| 2 | Add `family_members.password_hash` | No credential storage in schema | B2.1 |
+| 2 | ✅ Add `family_members.password_hash` (applied in B1.1) | No credential storage in schema | B2.1 |
 | 3 | Add `GET /elders`, `GET /elders/:id` | Mobile Home can't render without reading elders | B3.3 |
-| 4 | Add `elders.paused boolean default false` | §2 lists "pause" but schema has no column | B3.2 |
+| 4 | ✅ Add `elders.paused boolean default false` (applied in B1.1) | §2 lists "pause" but schema has no column | B3.2 |
 | 5 | Add `GET /elders/:id/progress` | SPEC §3 promises aggregate; no read endpoint | B5.3 |
 | 6 | Add `PATCH /medications/:id`, `GET /elders/:id/medications` | SPEC §4 says "edits"; mobile needs the list | B6.1 |
 | 7 | Add `GET /alerts`, `PATCH /alerts/:id/resolve` | Schema has `resolved_at`; mobile must list + resolve | B7.3 |

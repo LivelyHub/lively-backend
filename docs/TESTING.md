@@ -34,6 +34,15 @@ tests/
 
 **Run:** `npm test`. A green suite is the merge bar for every backend story — no story's BACKLOG.md boxes get ticked on red.
 
+## 1a. Schema checklist (B1.1)
+
+Run after any migration change, not just once:
+
+- [ ] `npx drizzle-kit migrate` succeeds from a **fully fresh** DB — reset both the `public` schema (tables) and the `drizzle` schema (Drizzle's own migration-tracking table) before testing "from zero," or a stale tracking table will silently skip migrations and you'll get a false pass. `docker compose exec -T db psql -U postgres -d lively_dev -c "DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"` then migrate.
+- [ ] Enum columns reject bad values at the DB level, not just app validation: `INSERT INTO alerts (elder_id, type) VALUES (gen_random_uuid(), 'bogus');` → `ERROR: invalid input value for enum`. Repeat for `conversations.direction`, `exercise_logs.method` / `medication_logs.method`, `chair_test_results.source`, `companions.key`.
+- [ ] Unique constraints hold: duplicate `companions.key` → rejected; duplicate `elders.phone_e164` → rejected.
+- [ ] `npm run seed` run twice → second run is a no-op (logs "already seeded, skipping"), row counts unchanged.
+
 ## 2. The auth matrix
 
 Every route × four credential columns. Automate as a table-driven test in `auth.test.ts`:

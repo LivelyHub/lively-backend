@@ -23,9 +23,9 @@ Lively has one shared foundation underneath four different surfaces: a marketing
 ### 1. Data model — Postgres on Neon
 
 ```
-elders            (id, family_member_id, name, honorific, companion_id, health_flags[], phone_e164, created_at)
-family_members    (id, email, name, push_token, created_at)
-companions        (id, key['mbak_asih'|'mas_budi'], display_name, system_prompt_ref)
+elders            (id, family_member_id, name, honorific, companion_id, health_flags[], phone_e164[unique], paused, created_at)
+family_members    (id, email, name, password_hash, push_token, created_at)
+companions        (id, key['mbak_asih'|'mas_budi'][unique], display_name, system_prompt_ref)
 conversations     (id, elder_id, direction['in'|'out'], body, created_at)
 chair_test_results(id, elder_id, reps, recorded_at, source['chat'])
 exercise_logs     (id, elder_id, completed_at, method['reply'|'emoji'|'photo'])
