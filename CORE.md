@@ -33,6 +33,7 @@ medications       (id, elder_id, name, dosage, schedule_times[], active, created
 medication_logs   (id, medication_id, elder_id, taken_at, method['reply'|'emoji'|'photo'])
 alerts            (id, elder_id, type['missed_days'|'pain_mention'|'dizziness_mention'|'medication_missed'|'no_response'|'emergency'], payload, created_at, resolved_at)
 titipan_messages  (id, elder_id, family_member_id, body, delivered_at, created_at)
+bot_contacts      (id, phone_e164[unique], elder_id[nullable], first_seen_at, last_seen_at, message_count)
 ```
 
 ### 2. API contract (Fastify, `lively-backend`)
@@ -43,7 +44,7 @@ titipan_messages  (id, elder_id, family_member_id, body, delivered_at, created_a
 | `PATCH /elders/:id` | mobile | switch companion / honorific / pause |
 | `GET /elders/:id/conversation` | mobile | chat monitor read |
 | `POST /elders/:id/titipan` | mobile | family relay message |
-| `POST /bot/inbound` | bot | log inbound WhatsApp message, fetch companion context |
+| `POST /bot/inbound` | bot | log inbound WhatsApp message, fetch companion context; upserts `bot_contacts` for every sender (unknown numbers are recorded, then 404) |
 | `POST /bot/outbound` | bot | log outbound message after send |
 | `POST /assessments/chair-test` | bot | record parsed chair-test result |
 | `POST /exercise-logs` | bot | record daily completion |

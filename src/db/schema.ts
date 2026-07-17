@@ -67,6 +67,18 @@ export const elders = pgTable("elders", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Every phone number that has ever messaged the bot, registered or not.
+// elder_id stays null for unknown senders — /bot/inbound still 404s for
+// them, but the contact row means the number is never silently dropped.
+export const botContacts = pgTable("bot_contacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  phoneE164: text("phone_e164").notNull().unique(),
+  elderId: uuid("elder_id").references(() => elders.id),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  messageCount: integer("message_count").notNull().default(1),
+});
+
 export const conversations = pgTable(
   "conversations",
   {
