@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { safeCompare } from "../lib/auth-guards.js";
 import { recordInboundMessage } from "../lib/record-inbound.js";
+import { deliverCompanionReply } from "../lib/companion-reply.js";
 
 interface WhatsAppTextMessage {
   from?: string;
@@ -87,6 +88,11 @@ export async function webhookRoutes(app: FastifyInstance) {
             const elder = await recordInboundMessage(phoneE164, message.text.body);
             if (!elder) {
               app.log.info({ phoneE164 }, "webhook message from unregistered number recorded");
+            } else if (!elder.paused) {
+              // Fire-and-forget: the AI round trip takes seconds, and Meta
+              // needs its 200 quickly or it retries the whole batch.
+              // deliverCompanionReply catches its own errors.
+              void deliverCompanionReply(elder, message.text.body, app.log);
             }
           } catch (err) {
             // storage failure must not turn into a non-2xx: Meta would
