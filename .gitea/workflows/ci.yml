@@ -51,21 +51,27 @@ jobs:
           docker build --target build -t lively-backend:migrate .
           docker build -t lively-backend:${{ gitea.sha }} -t lively-backend:latest .
 
+      - name: Write .env from APP_ENV secret
+        # quoted heredoc: secret is inserted literally, no shell expansion
+        run: |
+          umask 077
+          cat > .env <<'APP_ENV_EOF'
+          ${{ secrets.APP_ENV }}
+          APP_ENV_EOF
+
       - name: Run migrations
         run: |
-          docker run --rm \
-            -e DATABASE_URL='${{ secrets.DATABASE_URL }}' \
+          docker run --rm --env-file .env \
             lively-backend:migrate npm run db:migrate
 
       - name: Restart container
+        # -e PORT wins over --env-file, so the app always matches the -p mapping
         run: |
           docker rm -f lively-backend 2>/dev/null || true
           docker run -d --name lively-backend --restart unless-stopped \
             -p 7000:7000 \
+            --env-file .env \
             -e PORT=7000 \
-            -e DATABASE_URL='${{ secrets.DATABASE_URL }}' \
-            -e JWT_SECRET='${{ secrets.JWT_SECRET }}' \
-            -e BOT_SERVICE_KEY='${{ secrets.BOT_SERVICE_KEY }}' \
             lively-backend:latest
 
       - name: Health check
@@ -78,3 +84,7 @@ jobs:
 
       - name: Prune old images
         run: docker image prune -f
+
+      - name: Remove .env from workspace
+        if: always()
+        run: rm -f .env
