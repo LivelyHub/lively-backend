@@ -1,13 +1,13 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
-import { db } from "../db/index.js";
-import { elders, conversations } from "../db/schema.js";
-import { requireBot, requireFamily } from "../lib/auth-guards.js";
-import { HttpError, parseBody, parseQuery } from "../lib/http-errors.js";
-import { findCompanionById } from "../lib/companions.js";
-import { getOwnedElder } from "../lib/owned-elder.js";
-import { recordInboundMessage } from "../lib/record-inbound.js";
+import { db } from "../../db/index.js";
+import { elders, conversations } from "../../db/schema.js";
+import { requireBot, requireFamily } from "../../shared/auth-guards.js";
+import { HttpError, parseBody, parseQuery } from "../../shared/http-errors.js";
+import { findCompanionById } from "../elders/service.js";
+import { getOwnedElder } from "../../shared/owned-elder.js";
+import { recordInboundMessage } from "./service.js";
 
 const PHONE_E164_REGEX = /^\+[1-9]\d{6,14}$/;
 

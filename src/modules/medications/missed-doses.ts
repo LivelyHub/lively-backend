@@ -1,8 +1,8 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { medications, medicationLogs } from "../db/schema.js";
-import { raiseAlert } from "./alerts.js";
-import { toUtcDateString } from "./dates.js";
+import { db } from "../../db/index.js";
+import { medications, medicationLogs } from "../../db/schema.js";
+import { raiseAlert } from "../alerts/service.js";
+import { toUtcDateString } from "../../shared/dates.js";
 
 // Defaults per CORE §5 / BACKLOG.md B6.3. "Per-elder-overridable" is noted
 // in the story but there's no column to override them with and no product

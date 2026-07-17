@@ -1,14 +1,14 @@
 import { and, eq, gte, lt } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
-import { db } from "../db/index.js";
-import { elders, medications, medicationLogs } from "../db/schema.js";
-import { requireFamily } from "../lib/auth-guards.js";
-import { HttpError, parseBody, parseQuery } from "../lib/http-errors.js";
-import { getOwnedElder } from "../lib/owned-elder.js";
-import { utcDayRange, utcTimeOfDay } from "../lib/dates.js";
-import { checkMissedDoses } from "../lib/missed-doses.js";
-import { serializeMedication } from "../lib/medications.js";
+import { db } from "../../db/index.js";
+import { elders, medications, medicationLogs } from "../../db/schema.js";
+import { requireBot, requireFamily } from "../../shared/auth-guards.js";
+import { HttpError, parseBody, parseQuery } from "../../shared/http-errors.js";
+import { getOwnedElder } from "../../shared/owned-elder.js";
+import { utcDayRange, utcTimeOfDay } from "../../shared/dates.js";
+import { checkMissedDoses } from "./missed-doses.js";
+import { serializeMedication, computeSlots } from "./service.js";
 
 const uuidSchema = z.string().uuid();
 const HH_MM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -33,8 +33,22 @@ const listQuerySchema = z.object({
   elder_id: z.string().uuid(),
 });
 
+const medicationLogSchema = z
+  .object({
+    medication_id: z.string().uuid(),
+    elder_id: z.string().uuid(),
+    method: z.enum(["reply", "emoji", "photo"]),
+    taken_at: z.string().datetime().optional(),
+    // Points at /uploads/<file> from a prior POST /uploads/photo — required
+    // when method is 'photo' so that value isn't claimed with nothing behind it.
+    photo_url: z.string().min(1).max(500).optional(),
+  })
+  .refine((body) => body.method !== "photo" || Boolean(body.photo_url), {
+    message: "photo_url is required when method is 'photo'",
+    path: ["photo_url"],
+  });
+
 type MedicationRow = typeof medications.$inferSelect;
-type SlotStatus = "taken" | "unconfirmed" | "upcoming";
 
 async function getOwnedMedication(familyMemberId: string, medicationId: string): Promise<MedicationRow> {
   if (!uuidSchema.safeParse(medicationId).success) {
@@ -49,20 +63,6 @@ async function getOwnedMedication(familyMemberId: string, medicationId: string):
     throw new HttpError(404, "NOT_FOUND", "Medication not found");
   }
   return row.medication;
-}
-
-// Same trailing-N heuristic as progress.ts's unconfirmed_today: medication_logs
-// has no slot column, so a partial day can't say *which* dose was confirmed.
-// This marks the earliest `logsToday` schedule_times as taken (sorted
-// ascending), then splits the rest into unconfirmed (already due) vs
-// upcoming by comparing against the current UTC time-of-day — exact for the
-// common single-dose-per-day case, approximate for multi-dose medications.
-function computeSlots(scheduleTimes: string[], logsToday: number, nowTimeOfDay: string): { time: string; status: SlotStatus }[] {
-  const sorted = scheduleTimes.map((t) => t.slice(0, 5)).sort();
-  return sorted.map((time, i) => {
-    if (i < logsToday) return { time, status: "taken" as const };
-    return { time, status: (time <= nowTimeOfDay ? "unconfirmed" : "upcoming") as SlotStatus };
-  });
 }
 
 export async function medicationRoutes(app: FastifyInstance) {
@@ -134,5 +134,74 @@ export async function medicationRoutes(app: FastifyInstance) {
         };
       }),
     );
+  });
+
+  // Idempotency here is per medication per UTC calendar day, not per
+  // medication + slot as BACKLOG.md B6.2 originally specs. Slot-level
+  // idempotency needs a scheduled_time/slot column on medication_logs,
+  // which doesn't exist and CORE.md's schema froze end of Day 1 — adding
+  // one now means a contract change lively-bot would need to adopt
+  // mid-hackathon. Day-level idempotency is exactly correct for the
+  // single-dose-per-day case (the seed data, and likely the demo); it
+  // under-confirms a second same-day dose for multi-dose medications.
+  // Flagged here and in B6.1/B5.3 rather than silently shipped as if exact.
+  app.post("/medication-logs", { preHandler: requireBot }, async (request, reply) => {
+    const body = parseBody(medicationLogSchema, request.body);
+
+    const [medication] = await db.select().from(medications).where(eq(medications.id, body.medication_id));
+    if (!medication) {
+      throw new HttpError(404, "NOT_FOUND", "Medication not found");
+    }
+    if (medication.elderId !== body.elder_id) {
+      throw new HttpError(400, "VALIDATION", "Medication does not belong to this elder", {
+        medication_id: "Belongs to a different elder",
+      });
+    }
+
+    const takenAt = body.taken_at ? new Date(body.taken_at) : new Date();
+    const { start, end } = utcDayRange(takenAt);
+
+    const [existing] = await db
+      .select()
+      .from(medicationLogs)
+      .where(
+        and(
+          eq(medicationLogs.medicationId, medication.id),
+          gte(medicationLogs.takenAt, start),
+          lt(medicationLogs.takenAt, end),
+        ),
+      );
+
+    if (existing) {
+      return {
+        id: existing.id,
+        medication_id: existing.medicationId,
+        elder_id: existing.elderId,
+        method: existing.method,
+        taken_at: existing.takenAt,
+        photo_url: existing.photoUrl,
+      };
+    }
+
+    const [inserted] = await db
+      .insert(medicationLogs)
+      .values({
+        medicationId: medication.id,
+        elderId: medication.elderId,
+        method: body.method,
+        takenAt,
+        photoUrl: body.photo_url ?? null,
+      })
+      .returning();
+
+    reply.code(201);
+    return {
+      id: inserted.id,
+      medication_id: inserted.medicationId,
+      elder_id: inserted.elderId,
+      method: inserted.method,
+      taken_at: inserted.takenAt,
+      photo_url: inserted.photoUrl,
+    };
   });
 }

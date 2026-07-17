@@ -1,11 +1,11 @@
 import { and, eq, gte, lt } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
-import { db } from "../db/index.js";
-import { elders, chairTestResults, exerciseLogs } from "../db/schema.js";
-import { requireBot } from "../lib/auth-guards.js";
-import { HttpError, parseBody } from "../lib/http-errors.js";
-import { utcDayRange } from "../lib/dates.js";
+import { db } from "../../db/index.js";
+import { elders, chairTestResults, exerciseLogs } from "../../db/schema.js";
+import { requireBot } from "../../shared/auth-guards.js";
+import { HttpError, parseBody } from "../../shared/http-errors.js";
+import { utcDayRange } from "../../shared/dates.js";
 
 const chairTestSchema = z.object({
   elder_id: z.string().uuid(),
@@ -13,11 +13,19 @@ const chairTestSchema = z.object({
   recorded_at: z.string().datetime().optional(),
 });
 
-const exerciseLogSchema = z.object({
-  elder_id: z.string().uuid(),
-  method: z.enum(["reply", "emoji", "photo"]),
-  completed_at: z.string().datetime().optional(),
-});
+const exerciseLogSchema = z
+  .object({
+    elder_id: z.string().uuid(),
+    method: z.enum(["reply", "emoji", "photo"]),
+    completed_at: z.string().datetime().optional(),
+    // Points at /uploads/<file> from a prior POST /uploads/photo — required
+    // when method is 'photo' so that value isn't claimed with nothing behind it.
+    photo_url: z.string().min(1).max(500).optional(),
+  })
+  .refine((body) => body.method !== "photo" || Boolean(body.photo_url), {
+    message: "photo_url is required when method is 'photo'",
+    path: ["photo_url"],
+  });
 
 async function findElder(elderId: string) {
   const [elder] = await db.select().from(elders).where(eq(elders.id, elderId));
@@ -70,12 +78,13 @@ export async function assessmentRoutes(app: FastifyInstance) {
         elder_id: existing.elderId,
         method: existing.method,
         completed_at: existing.completedAt,
+        photo_url: existing.photoUrl,
       };
     }
 
     const [inserted] = await db
       .insert(exerciseLogs)
-      .values({ elderId: elder.id, method: body.method, completedAt })
+      .values({ elderId: elder.id, method: body.method, completedAt, photoUrl: body.photo_url ?? null })
       .returning();
 
     reply.code(201);
@@ -84,6 +93,7 @@ export async function assessmentRoutes(app: FastifyInstance) {
       elder_id: inserted.elderId,
       method: inserted.method,
       completed_at: inserted.completedAt,
+      photo_url: inserted.photoUrl,
     };
   });
 }

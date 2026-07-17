@@ -2,21 +2,26 @@ import "dotenv/config";
 import Fastify, { type FastifyError } from "fastify";
 import fastifyJwt from "@fastify/jwt";
 import fastifyCors from "@fastify/cors";
+import fastifyRateLimit from "@fastify/rate-limit";
+import fastifyMultipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
 import { sql } from "drizzle-orm";
 import { db } from "./db/index.js";
-import { authRoutes } from "./routes/auth.js";
-import { elderRoutes } from "./routes/elders.js";
-import { conversationRoutes } from "./routes/conversations.js";
-import { assessmentRoutes } from "./routes/assessments.js";
-import { progressRoutes } from "./routes/progress.js";
-import { medicationRoutes } from "./routes/medications.js";
-import { medicationLogRoutes } from "./routes/medication-logs.js";
-import { alertRoutes } from "./routes/alerts.js";
-import { familyMemberRoutes } from "./routes/family-members.js";
-import { titipanRoutes } from "./routes/titipan.js";
-import { reportRoutes } from "./routes/report.js";
-import { webhookRoutes } from "./routes/webhook.js";
-import type { HttpError } from "./lib/http-errors.js";
+import { authRoutes } from "./modules/auth/routes.js";
+import { elderRoutes } from "./modules/elders/routes.js";
+import { conversationRoutes } from "./modules/conversations/routes.js";
+import { assessmentRoutes } from "./modules/assessments/routes.js";
+import { progressRoutes } from "./modules/progress/routes.js";
+import { medicationRoutes } from "./modules/medications/routes.js";
+import { alertRoutes } from "./modules/alerts/routes.js";
+import { familyMemberRoutes } from "./modules/family-members/routes.js";
+import { titipanRoutes } from "./modules/titipan/routes.js";
+import { reportRoutes } from "./modules/report/routes.js";
+import { webhookRoutes } from "./modules/webhook/routes.js";
+import { uploadRoutes } from "./modules/uploads/routes.js";
+import { UPLOAD_DIR } from "./shared/uploads.js";
+import type { HttpError } from "./shared/http-errors.js";
+import { mkdir } from "node:fs/promises";
 
 const app = Fastify({
   logger: {
@@ -39,6 +44,13 @@ app.setErrorHandler((error: FastifyError | HttpError, _request, reply) => {
   if (typeof error.code === "string" && error.code.startsWith("FST_ERR_CTP_")) {
     reply.status(400).send({
       error: { code: "VALIDATION", message: "Invalid request body" },
+    });
+    return;
+  }
+
+  if (error.code === "FST_TOO_MANY_REQUESTS") {
+    reply.status(429).send({
+      error: { code: "RATE_LIMITED", message: "Too many requests, try again shortly" },
     });
     return;
   }
@@ -89,18 +101,25 @@ if (missingEnvVars.length > 0) {
 // "*", which is what Expo Go's dev client and the deployed app both need.
 await app.register(fastifyCors, { origin: true });
 await app.register(fastifyJwt, { secret: process.env.JWT_SECRET! });
+// Global default is loose (this is still a two-client trusted system); only
+// /auth/login and /auth/register override it tighter (see modules/auth/routes.ts)
+// since those are the actual brute-force/credential-stuffing surface.
+await app.register(fastifyRateLimit, { max: 300, timeWindow: "1 minute" });
+await app.register(fastifyMultipart);
+await mkdir(UPLOAD_DIR, { recursive: true });
+await app.register(fastifyStatic, { root: UPLOAD_DIR, prefix: "/uploads/" });
 await app.register(authRoutes);
 await app.register(elderRoutes);
 await app.register(conversationRoutes);
 await app.register(assessmentRoutes);
 await app.register(progressRoutes);
 await app.register(medicationRoutes);
-await app.register(medicationLogRoutes);
 await app.register(alertRoutes);
 await app.register(familyMemberRoutes);
 await app.register(titipanRoutes);
 await app.register(reportRoutes);
 await app.register(webhookRoutes);
+await app.register(uploadRoutes);
 
 app.listen({ port, host: "0.0.0.0" }).catch((err) => {
   app.log.error(err);

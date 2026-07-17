@@ -11,6 +11,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Uploaded photos (local disk storage, see src/shared/uploads.ts)
+uploads/
+
 # OS / editor
 .DS_Store
 *.log

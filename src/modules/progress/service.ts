@@ -1,8 +1,8 @@
 import { desc, eq } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { chairTestResults, exerciseLogs, medications, medicationLogs } from "../db/schema.js";
-import { toUtcDateString } from "./dates.js";
-import { serializeMedication } from "./medications.js";
+import { db } from "../../db/index.js";
+import { chairTestResults, exerciseLogs, medications, medicationLogs } from "../../db/schema.js";
+import { toUtcDateString } from "../../shared/dates.js";
+import { serializeMedication } from "../medications/service.js";
 
 function lastNDays(n: number): string[] {
   const days: string[] = [];

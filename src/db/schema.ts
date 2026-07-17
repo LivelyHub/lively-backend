@@ -110,6 +110,8 @@ export const exerciseLogs = pgTable("exercise_logs", {
     .references(() => elders.id),
   completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
   method: logMethodEnum("method").notNull(),
+  // Set when method = 'photo' (points at /uploads/<file>, see shared/uploads.ts).
+  photoUrl: text("photo_url"),
 });
 
 export const medications = pgTable("medications", {
@@ -136,6 +138,8 @@ export const medicationLogs = pgTable(
       .references(() => elders.id),
     takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
     method: logMethodEnum("method").notNull(),
+    // Set when method = 'photo' (points at /uploads/<file>, see shared/uploads.ts).
+    photoUrl: text("photo_url"),
   },
   (table) => [index("medication_logs_med_taken_idx").on(table.medicationId, table.takenAt)],
 );
@@ -154,6 +158,17 @@ export const alerts = pgTable(
   },
   (table) => [index("alerts_elder_created_idx").on(table.elderId, table.createdAt)],
 );
+
+// One row per logged-out token (keyed by its jti claim, added at sign time).
+// requireFamily checks this on every request — a small extra query, but
+// this is the only way to make a 7-day JWT actually revocable without
+// standing up a session store. Rows can be pruned by expiresAt once the
+// underlying token itself would no longer verify anyway.
+export const revokedTokens = pgTable("revoked_tokens", {
+  jti: uuid("jti").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const titipanMessages = pgTable("titipan_messages", {
   id: uuid("id").primaryKey().defaultRandom(),

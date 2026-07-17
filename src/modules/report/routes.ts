@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
-import { requireFamily } from "../lib/auth-guards.js";
-import { getOwnedElder } from "../lib/owned-elder.js";
-import { parseQuery } from "../lib/http-errors.js";
-import { computeReport } from "../lib/report.js";
+import { requireFamily } from "../../shared/auth-guards.js";
+import { getOwnedElder } from "../../shared/owned-elder.js";
+import { parseQuery } from "../../shared/http-errors.js";
+import { computeReport } from "./service.js";
 
 const reportQuerySchema = z.object({
   period: z.enum(["week", "month"]).default("week"),

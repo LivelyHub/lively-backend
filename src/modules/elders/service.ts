@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { companions } from "../db/schema.js";
-import { HttpError } from "./http-errors.js";
+import { db } from "../../db/index.js";
+import { companions } from "../../db/schema.js";
+import { HttpError } from "../../shared/http-errors.js";
 
 export const COMPANION_KEYS = ["mbak_asih", "mas_budi"] as const;
 

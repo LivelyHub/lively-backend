@@ -1,13 +1,13 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
-import { db } from "../db/index.js";
-import { elders, alerts } from "../db/schema.js";
-import { requireBot, requireFamily } from "../lib/auth-guards.js";
-import { HttpError, parseBody, parseQuery } from "../lib/http-errors.js";
-import { getOwnedElder } from "../lib/owned-elder.js";
-import { sendAlertPush } from "../lib/push.js";
-import { ALERT_TYPES, raiseAlert } from "../lib/alerts.js";
+import { db } from "../../db/index.js";
+import { elders, alerts } from "../../db/schema.js";
+import { requireBot, requireFamily } from "../../shared/auth-guards.js";
+import { HttpError, parseBody, parseQuery } from "../../shared/http-errors.js";
+import { getOwnedElder } from "../../shared/owned-elder.js";
+import { sendAlertPush } from "./push.js";
+import { ALERT_TYPES, raiseAlert } from "./service.js";
 
 const uuidSchema = z.string().uuid();
 

@@ -1,4 +1,4 @@
-import type { familyMembers } from "../db/schema.js";
+import type { familyMembers } from "../../db/schema.js";
 
 type FamilyMemberRow = typeof familyMembers.$inferSelect;
 

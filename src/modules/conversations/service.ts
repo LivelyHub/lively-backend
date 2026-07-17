@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { elders, conversations, botContacts } from "../db/schema.js";
+import { db } from "../../db/index.js";
+import { elders, conversations, botContacts } from "../../db/schema.js";
 
 // Shared by POST /bot/inbound and POST /webhook: upsert the sender into
 // bot_contacts (unknown numbers included), and log the message iff the

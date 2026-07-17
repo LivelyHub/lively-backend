@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { safeCompare } from "../lib/auth-guards.js";
-import { recordInboundMessage } from "../lib/record-inbound.js";
+import { safeCompare } from "../../shared/auth-guards.js";
+import { recordInboundMessage } from "../conversations/service.js";
 
 interface WhatsAppTextMessage {
   from?: string;

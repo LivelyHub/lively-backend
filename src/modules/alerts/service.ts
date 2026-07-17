@@ -1,6 +1,6 @@
 import { and, desc, eq, gte } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { elders, alerts } from "../db/schema.js";
+import { db } from "../../db/index.js";
+import { elders, alerts } from "../../db/schema.js";
 import { sendAlertPush } from "./push.js";
 
 export const ALERT_TYPES = [

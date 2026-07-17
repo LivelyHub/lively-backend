@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { familyMembers, elders } from "../db/schema.js";
+import { db } from "../../db/index.js";
+import { familyMembers, elders } from "../../db/schema.js";
 
 type AlertType =
   | "missed_days"

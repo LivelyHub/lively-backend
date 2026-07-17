@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
-import { db } from "../db/index.js";
-import { familyMembers } from "../db/schema.js";
-import { requireFamily } from "../lib/auth-guards.js";
-import { HttpError, parseBody } from "../lib/http-errors.js";
-import { serializeFamilyMember } from "../lib/family-members.js";
+import { db } from "../../db/index.js";
+import { familyMembers } from "../../db/schema.js";
+import { requireFamily } from "../../shared/auth-guards.js";
+import { HttpError, parseBody } from "../../shared/http-errors.js";
+import { serializeFamilyMember } from "./service.js";
 
 const patchMeSchema = z.object({
   push_token: z.string().min(1).max(500).optional(),

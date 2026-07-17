@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import { requireFamily } from "../lib/auth-guards.js";
-import { getOwnedElder } from "../lib/owned-elder.js";
-import { computeProgress } from "../lib/progress.js";
+import { requireFamily } from "../../shared/auth-guards.js";
+import { getOwnedElder } from "../../shared/owned-elder.js";
+import { computeProgress } from "./service.js";
 
 export async function progressRoutes(app: FastifyInstance) {
   app.get("/elders/:id/progress", { preHandler: requireFamily }, async (request) => {

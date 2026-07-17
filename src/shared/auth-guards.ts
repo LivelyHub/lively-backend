@@ -1,20 +1,41 @@
 import { timingSafeEqual } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
+import { db } from "../db/index.js";
+import { revokedTokens } from "../db/schema.js";
 import { HttpError } from "./http-errors.js";
 
 declare module "fastify" {
   interface FastifyRequest {
     familyMemberId?: string;
+    tokenJti?: string;
   }
 }
 
+interface FamilyTokenPayload {
+  family_member_id: string;
+  jti?: string;
+}
+
 export async function requireFamily(request: FastifyRequest): Promise<void> {
+  let decoded: FamilyTokenPayload;
   try {
-    const decoded = await request.jwtVerify<{ family_member_id: string }>();
-    request.familyMemberId = decoded.family_member_id;
+    decoded = await request.jwtVerify<FamilyTokenPayload>();
   } catch {
     throw new HttpError(401, "UNAUTHORIZED", "Missing or invalid authorization token");
   }
+
+  // jti is absent only for tokens signed before logout/revocation shipped;
+  // those simply can't be revoked early (they'll still expire normally).
+  if (decoded.jti) {
+    const [revoked] = await db.select({ jti: revokedTokens.jti }).from(revokedTokens).where(eq(revokedTokens.jti, decoded.jti));
+    if (revoked) {
+      throw new HttpError(401, "UNAUTHORIZED", "Token has been revoked");
+    }
+  }
+
+  request.familyMemberId = decoded.family_member_id;
+  request.tokenJti = decoded.jti;
 }
 
 export function safeCompare(a: string, b: string): boolean {

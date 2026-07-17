@@ -1,11 +1,12 @@
-import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
-import { db } from "../db/index.js";
-import { familyMembers } from "../db/schema.js";
-import { HttpError, isUniqueViolation, parseBody } from "../lib/http-errors.js";
-import { serializeFamilyMember } from "../lib/family-members.js";
+import { db } from "../../db/index.js";
+import { familyMembers } from "../../db/schema.js";
+import { HttpError, isUniqueViolation, parseBody } from "../../shared/http-errors.js";
+import { requireFamily } from "../../shared/auth-guards.js";
+import { serializeFamilyMember } from "../family-members/service.js";
+import { hashPassword, verifyPassword, signFamilyToken, revokeToken, pruneExpiredRevocations } from "./service.js";
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -18,14 +19,14 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-// JWTs carry family_member_id and last >= 72h (B2.1) so judges don't
-// get logged out mid-demo; 7d gives margin past the submission window.
-const TOKEN_EXPIRY = "7d";
-
 export async function authRoutes(app: FastifyInstance) {
-  app.post("/auth/register", async (request, reply) => {
+  // Rate limits here are stricter than the app default (see server.ts) —
+  // brute-force/credential-stuffing targets, unlike the rest of the API.
+  const loginRateLimit = { rateLimit: { max: 10, timeWindow: "1 minute" } };
+
+  app.post("/auth/register", { config: loginRateLimit }, async (request, reply) => {
     const body = parseBody(registerSchema, request.body);
-    const passwordHash = await bcrypt.hash(body.password, 10);
+    const passwordHash = await hashPassword(body.password);
 
     let inserted;
     try {
@@ -40,7 +41,7 @@ export async function authRoutes(app: FastifyInstance) {
       throw err;
     }
 
-    const token = app.jwt.sign({ family_member_id: inserted.id }, { expiresIn: TOKEN_EXPIRY });
+    const token = signFamilyToken(app, inserted.id);
     reply.code(201);
     return {
       token,
@@ -48,7 +49,7 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post("/auth/login", async (request) => {
+  app.post("/auth/login", { config: loginRateLimit }, async (request) => {
     const body = parseBody(loginSchema, request.body);
     const [row] = await db.select().from(familyMembers).where(eq(familyMembers.email, body.email));
 
@@ -57,13 +58,21 @@ export async function authRoutes(app: FastifyInstance) {
     const invalidCredentials = () => new HttpError(401, "UNAUTHORIZED", "Invalid email or password");
     if (!row) throw invalidCredentials();
 
-    const valid = await bcrypt.compare(body.password, row.passwordHash);
+    const valid = await verifyPassword(body.password, row.passwordHash);
     if (!valid) throw invalidCredentials();
 
-    const token = app.jwt.sign({ family_member_id: row.id }, { expiresIn: TOKEN_EXPIRY });
+    const token = signFamilyToken(app, row.id);
     return {
       token,
       family_member: serializeFamilyMember(row),
     };
+  });
+
+  app.post("/auth/logout", { preHandler: requireFamily }, async (request, reply) => {
+    if (request.tokenJti) {
+      await revokeToken(request.tokenJti);
+      pruneExpiredRevocations().catch((err: unknown) => app.log.error(err, "revoked-token cleanup failed"));
+    }
+    reply.code(204);
   });
 }
