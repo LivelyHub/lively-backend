@@ -1,7 +1,10 @@
 import type { FastifyBaseLogger } from "fastify";
 import { db } from "../../db/index.js";
 import { conversations, type elders, type companions } from "../../db/schema.js";
-import { sendWhatsAppText, whatsappSendConfigured } from "../../shared/whatsapp.js";
+import { sendWhatsAppText, sendWhatsAppTemplate, whatsappSendConfigured } from "../../shared/whatsapp.js";
+
+const CAREGIVER_ALERT_TEMPLATE = "caregiver_alert";
+const CAREGIVER_ALERT_LANGUAGE = "id";
 
 type ElderRow = typeof elders.$inferSelect;
 type CompanionRow = typeof companions.$inferSelect;
@@ -30,4 +33,19 @@ export function sendElderIntroMessage(elder: ElderRow, companion: CompanionRow, 
       log.error({ err, elderId: elder.id }, "failed to send elder intro message");
     }
   })();
+}
+
+// Sends the "Notify Caregiver" button card so the elder always has one
+// sitting in their chat. Fired once alongside the intro message; the
+// webhook re-sends a fresh copy every time the button is tapped (see
+// modules/webhook/routes.ts) so a new one is always ready.
+export function sendCaregiverAlertButton(elder: ElderRow, log: FastifyBaseLogger): void {
+  if (!whatsappSendConfigured()) {
+    log.warn({ elderId: elder.id }, "caregiver alert button skipped — WhatsApp send not configured");
+    return;
+  }
+
+  sendWhatsAppTemplate(elder.phoneE164, CAREGIVER_ALERT_TEMPLATE, CAREGIVER_ALERT_LANGUAGE).catch((err) => {
+    log.error({ err, elderId: elder.id }, "failed to send caregiver alert button");
+  });
 }

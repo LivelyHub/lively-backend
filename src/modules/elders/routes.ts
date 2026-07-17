@@ -7,7 +7,7 @@ import { requireFamily } from "../../shared/auth-guards.js";
 import { HttpError, isUniqueViolation, parseBody } from "../../shared/http-errors.js";
 import { COMPANION_KEYS, findCompanionByKey, findCompanionById } from "./service.js";
 import { getOwnedElder } from "../../shared/owned-elder.js";
-import { sendElderIntroMessage } from "./intro.js";
+import { sendElderIntroMessage, sendCaregiverAlertButton } from "./intro.js";
 import { syncElderSoul } from "../../shared/bot-sync.js";
 
 const PHONE_E164_REGEX = /^\+[1-9]\d{6,14}$/;
@@ -101,6 +101,7 @@ export async function elderRoutes(app: FastifyInstance) {
 
     syncElderSoul(inserted, companion, app.log);
     sendElderIntroMessage(inserted, companion, app.log);
+    sendCaregiverAlertButton(inserted, app.log);
 
     reply.code(201);
     return serializeElder(inserted, companion);
