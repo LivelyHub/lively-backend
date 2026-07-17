@@ -35,6 +35,7 @@ async function fetchBotReply(elder: ElderRow, text: string): Promise<string> {
         // elders has no timezone column (CORE.md §1) — single-market default.
         timezone: "Asia/Jakarta",
         elderName: elder.name,
+        personalize: elder.personalize ?? null,
       },
     }),
     // LLM + tool round trips are slow; well past Meta's ack window, which
