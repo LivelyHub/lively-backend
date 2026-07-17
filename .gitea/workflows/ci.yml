@@ -68,9 +68,13 @@ jobs:
 
       - name: Restart container
         # -e PORT wins over --env-file, so the app always matches the -p mapping
+        # Shared user-defined network: default bridge has no container-name
+        # DNS, and BOT_REPLY_URL=http://lively-bot:7002 needs it to resolve.
         run: |
+          docker network create lively 2>/dev/null || true
           docker rm -f lively-backend 2>/dev/null || true
           docker run -d --name lively-backend --restart unless-stopped \
+            --network lively \
             -p 7000:7000 \
             --env-file .env \
             -e PORT=7000 \
