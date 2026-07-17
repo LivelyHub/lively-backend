@@ -57,6 +57,7 @@ bot_contacts      (id, phone_e164[unique], elder_id[nullable], first_seen_at, la
 | `POST /webhook` | meta | WhatsApp Cloud API message delivery — `X-Hub-Signature-256` verified against `META_APP_SECRET`; inbound texts stored via the same path as `/bot/inbound` (bot_contacts upsert + conversation log). Reply generation is NOT here — still `lively-bot`'s job |
 | `POST /bot/inbound` | bot | log inbound WhatsApp message, fetch companion context; upserts `bot_contacts` for every sender (unknown numbers are recorded, then 404) |
 | `POST /bot/outbound` | bot | log outbound message after send |
+| `POST /bot/send` | bot | proactive bot-initiated send — `{elderId, text, kind}`; backend delivers over WhatsApp Cloud API and logs the outbound row (amendment: lively-bot generates reminders, backend owns delivery) |
 | `POST /assessments/chair-test` | bot | record parsed chair-test result |
 | `POST /exercise-logs` | bot | record daily completion (idempotent per day) |
 | `GET /medications?elder_id=` | mobile | list active medications + today's per-slot status |

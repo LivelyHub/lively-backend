@@ -46,7 +46,18 @@ export function safeCompare(a: string, b: string): boolean {
 }
 
 export async function requireBot(request: FastifyRequest): Promise<void> {
-  const provided = request.headers["x-bot-key"];
+  // Two accepted forms: x-bot-key (CORE.md's original wording) and
+  // Authorization: Bearer — the latter is what lively-bot's backendRequest
+  // (src/tools/backend.ts) actually sends, so rejecting it would 401 every
+  // real bot call.
+  const headerKey = request.headers["x-bot-key"];
+  const auth = request.headers.authorization;
+  const provided =
+    typeof headerKey === "string"
+      ? headerKey
+      : typeof auth === "string" && auth.startsWith("Bearer ")
+        ? auth.slice("Bearer ".length)
+        : undefined;
   const expected = process.env.BOT_SERVICE_KEY;
   if (!expected || typeof provided !== "string" || !safeCompare(provided, expected)) {
     throw new HttpError(401, "UNAUTHORIZED", "Missing or invalid bot key");

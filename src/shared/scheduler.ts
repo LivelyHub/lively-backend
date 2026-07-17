@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { elders, medications, conversations } from "../db/schema.js";
+import { elders, conversations } from "../db/schema.js";
 import { sendWhatsAppText, whatsappSendConfigured } from "./whatsapp.js";
 
 // CORE.md §5: "Lively owns the scheduler for check-ins, medication
@@ -25,7 +25,6 @@ function jakartaNow(): { hhmm: string; dateStr: string; weekday: number } {
 // ponytail: in-memory de-dup sets, reset on restart — a reminder resent
 // after a crash is an acceptable ceiling at hackathon scale. Upgrade to a
 // sent_reminders table if double-sends become a real complaint.
-const sentMedication = new Set<string>();
 const sentBriefing = new Set<string>();
 
 async function sendAndLog(elderId: string, phoneE164: string, body: string, log: FastifyBaseLogger): Promise<void> {
@@ -42,18 +41,12 @@ async function tick(log: FastifyBaseLogger): Promise<void> {
   const { hhmm, dateStr, weekday } = jakartaNow();
 
   const activeElders = await db.select().from(elders).where(eq(elders.paused, false));
-  const eldersById = new Map(activeElders.map((e) => [e.id, e]));
 
-  const activeMeds = await db.select().from(medications).where(eq(medications.active, true));
-  for (const med of activeMeds) {
-    const elder = eldersById.get(med.elderId);
-    if (!elder) continue;
-    if (!med.scheduleTimes.some((t) => t.slice(0, 5) === hhmm)) continue;
-    const key = `${med.id}:${dateStr}:${hhmm}`;
-    if (sentMedication.has(key)) continue;
-    sentMedication.add(key);
-    await sendAndLog(elder.id, elder.phoneE164, `Waktunya minum obat ${med.name} (${med.dosage}), ${elder.honorific}.`, log);
-  }
+  // Medication reminders deliberately NOT sent from here: lively-bot's
+  // scheduler (its src/reminders.ts) owns them — it generates each nudge
+  // in-character from the elder's soul/personalize context and delivers
+  // through POST /bot/send. Sending a second template reminder from this
+  // loop would double-text every elder at every dose time.
 
   if (hhmm === MORNING_BRIEFING_TIME) {
     for (const elder of activeElders) {

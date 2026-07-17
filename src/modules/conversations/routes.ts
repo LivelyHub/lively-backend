@@ -8,6 +8,7 @@ import { HttpError, parseBody, parseQuery } from "../../shared/http-errors.js";
 import { findCompanionById } from "../elders/service.js";
 import { getOwnedElder } from "../../shared/owned-elder.js";
 import { recordInboundMessage } from "./service.js";
+import { sendWhatsAppText, whatsappSendConfigured } from "../../shared/whatsapp.js";
 
 const PHONE_E164_REGEX = /^\+[1-9]\d{6,14}$/;
 
@@ -19,6 +20,14 @@ const inboundSchema = z.object({
 const outboundSchema = z.object({
   elder_id: z.string().uuid(),
   body: z.string().trim().min(1).max(4000),
+});
+
+// camelCase, unlike the rest of the bot contract: matches what
+// lively-bot's reminder scheduler (src/reminders.ts) actually sends.
+const sendSchema = z.object({
+  elderId: z.string().uuid(),
+  text: z.string().trim().min(1).max(4000),
+  kind: z.string().trim().min(1).max(50).optional(),
 });
 
 const conversationQuerySchema = z
@@ -78,6 +87,37 @@ export async function conversationRoutes(app: FastifyInstance) {
     const [inserted] = await db
       .insert(conversations)
       .values({ elderId: elder.id, direction: "out", body: body.body })
+      .returning();
+
+    reply.code(201);
+    return serializeMessage(inserted);
+  });
+
+  // Proactive bot-initiated delivery (medication reminders etc.): unlike
+  // /bot/outbound, which only logs a message the bot already sent itself,
+  // this one owns the WhatsApp delivery — lively-bot has no Cloud API
+  // credentials, so it generates the text and the backend sends it.
+  app.post("/bot/send", { preHandler: requireBot }, async (request, reply) => {
+    const body = parseBody(sendSchema, request.body);
+    const [elder] = await db.select().from(elders).where(eq(elders.id, body.elderId));
+    if (!elder) {
+      throw new HttpError(404, "NOT_FOUND", "Elder not found");
+    }
+    if (elder.paused) {
+      throw new HttpError(403, "ELDER_PAUSED", "Elder is paused — proactive sends are disabled");
+    }
+    if (!whatsappSendConfigured()) {
+      throw new HttpError(503, "SEND_UNAVAILABLE", "WhatsApp send is not configured on this deployment");
+    }
+
+    await sendWhatsAppText(elder.phoneE164, body.text);
+    request.log.info({ elderId: elder.id, kind: body.kind ?? "unspecified" }, "bot-initiated send delivered");
+
+    // Logged only after a successful send, same rule as companion-reply:
+    // the Chat Monitor must never show a message the elder didn't get.
+    const [inserted] = await db
+      .insert(conversations)
+      .values({ elderId: elder.id, direction: "out", body: body.text })
       .returning();
 
     reply.code(201);
