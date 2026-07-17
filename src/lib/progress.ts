@@ -1,7 +1,8 @@
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { chairTestResults, exerciseLogs, medications, medicationLogs } from "../db/schema.js";
 import { toUtcDateString } from "./dates.js";
+import { serializeMedication } from "./medications.js";
 
 function lastNDays(n: number): string[] {
   const days: string[] = [];
@@ -11,6 +12,22 @@ function lastNDays(n: number): string[] {
     days.push(toUtcDateString(new Date(today.getTime() - i * 24 * 60 * 60 * 1000)));
   }
   return days;
+}
+
+// Calendar week (Monday-Sunday, UTC), distinct from the rolling 30-day
+// windows used elsewhere in this file — mobile's day-dot streak row wants a
+// fixed week grid with real "future" days when today isn't Sunday yet,
+// which a trailing window (always ending today) can never produce.
+function currentWeekDates(): string[] {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const daysSinceMonday = (today.getUTCDay() + 6) % 7; // Mon=0 ... Sun=6
+  const monday = new Date(today.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000);
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    dates.push(toUtcDateString(new Date(monday.getTime() + i * 24 * 60 * 60 * 1000)));
+  }
+  return dates;
 }
 
 // Consecutive-day streak ending today, with a one-day grace: if today has
@@ -31,7 +48,7 @@ function computeStreak(dates: Set<string>): number {
 }
 
 export async function computeProgress(elderId: string) {
-  const [chairRows, exerciseRows, medicationRows, medicationLogRows] = await Promise.all([
+  const [chairRows, exerciseRows, allMedicationRows, medicationLogRows] = await Promise.all([
     db
       .select()
       .from(chairTestResults)
@@ -39,9 +56,14 @@ export async function computeProgress(elderId: string) {
       .orderBy(desc(chairTestResults.recordedAt))
       .limit(20),
     db.select().from(exerciseLogs).where(eq(exerciseLogs.elderId, elderId)),
-    db.select().from(medications).where(and(eq(medications.elderId, elderId), eq(medications.active, true))),
+    // All medications, active and inactive — mobile's Home glance filters
+    // by .active client-side (components/home/glance.ts), so the raw array
+    // needs to carry both, not just the active subset.
+    db.select().from(medications).where(eq(medications.elderId, elderId)),
     db.select().from(medicationLogs).where(eq(medicationLogs.elderId, elderId)),
   ]);
+
+  const activeMedicationRows = allMedicationRows.filter((m) => m.active);
 
   const chairTests = chairRows
     .slice()
@@ -51,19 +73,22 @@ export async function computeProgress(elderId: string) {
 
   const exerciseDates = new Set(exerciseRows.map((r) => toUtcDateString(r.completedAt)));
   const currentStreakDays = computeStreak(exerciseDates);
-  const last7Days = lastNDays(7);
-  const thisWeek = last7Days.filter((d) => exerciseDates.has(d));
+  const todayStr = toUtcDateString(new Date());
+  const thisWeek = currentWeekDates().map((date) => ({
+    date,
+    status: date > todayStr ? ("future" as const) : exerciseDates.has(date) ? ("done" as const) : ("missed" as const),
+  }));
   const last30Days = lastNDays(30);
   const exerciseHistory = last30Days.map((d) => ({ date: d, completed: exerciseDates.has(d) }));
 
-  const scheduledPerDay = medicationRows.reduce((sum, m) => sum + m.scheduleTimes.length, 0);
+  const scheduledPerDay = activeMedicationRows.reduce((sum, m) => sum + m.scheduleTimes.length, 0);
   const last7dScheduled = scheduledPerDay * 7;
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const last7dTaken = medicationLogRows.filter((l) => l.takenAt >= sevenDaysAgo).length;
+  const medicationAdherencePct = last7dScheduled > 0 ? Math.round((last7dTaken / last7dScheduled) * 100) : 0;
 
-  const todayStr = toUtcDateString(new Date());
   const unconfirmedToday: string[] = [];
-  for (const med of medicationRows) {
+  for (const med of activeMedicationRows) {
     const logsToday = medicationLogRows.filter(
       (l) => l.medicationId === med.id && toUtcDateString(l.takenAt) === todayStr,
     ).length;
@@ -99,6 +124,31 @@ export async function computeProgress(elderId: string) {
   const engagementStreakDays = computeStreak(engagementDates);
 
   return {
+    // Raw arrays, snake_case, also consumed directly by mobile's Home
+    // "today at a glance" rows (components/home/glance.ts) — kept verbatim
+    // alongside the computed fields below, not replaced by them.
+    chair_test_results: chairRows.map((r) => ({
+      id: r.id,
+      elder_id: r.elderId,
+      reps: r.reps,
+      recorded_at: r.recordedAt,
+      source: r.source,
+    })),
+    exercise_logs: exerciseRows.map((r) => ({
+      id: r.id,
+      elder_id: r.elderId,
+      completed_at: r.completedAt,
+      method: r.method,
+    })),
+    medications: allMedicationRows.map(serializeMedication),
+    medication_logs: medicationLogRows.map((l) => ({
+      id: l.id,
+      medication_id: l.medicationId,
+      elder_id: l.elderId,
+      taken_at: l.takenAt,
+      method: l.method,
+    })),
+
     overall_progress_pct: overallProgressPct,
     engagement_streak_days: engagementStreakDays,
     chair_tests: chairTests,
@@ -107,6 +157,7 @@ export async function computeProgress(elderId: string) {
     medication_adherence: {
       last7d_taken: last7dTaken,
       last7d_scheduled: last7dScheduled,
+      pct: medicationAdherencePct,
       unconfirmed_today: unconfirmedToday,
     },
     medication_adherence_trend: medicationAdherenceTrend,

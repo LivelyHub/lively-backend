@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { db } from "../db/index.js";
 import { familyMembers } from "../db/schema.js";
 import { HttpError, isUniqueViolation, parseBody } from "../lib/http-errors.js";
+import { serializeFamilyMember } from "../lib/family-members.js";
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -43,7 +44,7 @@ export async function authRoutes(app: FastifyInstance) {
     reply.code(201);
     return {
       token,
-      familyMember: { id: inserted.id, email: inserted.email, name: inserted.name },
+      family_member: serializeFamilyMember(inserted),
     };
   });
 
@@ -62,7 +63,7 @@ export async function authRoutes(app: FastifyInstance) {
     const token = app.jwt.sign({ family_member_id: row.id }, { expiresIn: TOKEN_EXPIRY });
     return {
       token,
-      familyMember: { id: row.id, email: row.email, name: row.name },
+      family_member: serializeFamilyMember(row),
     };
   });
 }

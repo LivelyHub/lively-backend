@@ -6,6 +6,8 @@
 
 **How to use this file:** work stories in priority order, top to bottom. Tick each acceptance box **in the same PR that satisfies it** — this file is the shared, checkable record of progress. A story is done only when its boxes are ticked *and* its test steps (in [TESTING.md](TESTING.md)) pass. See [../AGENTS.md](../AGENTS.md) for the working agreement.
 
+**2026-07-17 contract reconciliation:** every story below was individually verified against Neon as it landed, but CORE.md's §2 table was never updated to match — stories shipped without the corresponding amendment being applied (see the amendments table further down, now marked ✅ where actually applied). `lively-mobile` had built its client independently against `ANTICIPATED` shapes it had to guess. First local mobile↔backend connection testing surfaced the drift: elders/medications/family-members/auth responses were camelCase while mobile assumed snake_case (matching CORE §7's own convention); several routes didn't exist in the form mobile called them (`GET /medications` took a path param instead of `?elder_id=`, alerts required `elder_id`, resolve and manual-escalate were two routes instead of one, `GET /family-members/me` and `GET /elders/:id/titipan` didn't exist at all). Reconciled by changing the backend to match mobile + CORE §7's snake_case convention (not the other way around — nothing here was ever actually locked, just inconsistently implemented). CORE.md §2 now reflects the real, verified contract. Story-level acceptance boxes below still describe the original per-story tests; where the route/shape changed since, the story's checklist wasn't rewritten line-by-line — CORE.md is the current source of truth for exact shapes.
+
 ---
 
 ## Epic B0 — Project scaffold `P0`
@@ -337,16 +339,16 @@ CORE.md's rule: schema/endpoint changes update all four repo copies, no local wo
 
 | # | Change | Why | Story |
 |---|---|---|---|
-| 1 | Add `POST /auth/register`, `POST /auth/login` | JWT "issued by backend" with no issuing endpoint | B2.1 |
+| 1 | ✅ Add `POST /auth/register`, `POST /auth/login` (applied in B2.1) | JWT "issued by backend" with no issuing endpoint | B2.1 |
 | 2 | ✅ Add `family_members.password_hash` (applied in B1.1) | No credential storage in schema | B2.1 |
-| 3 | Add `GET /elders`, `GET /elders/:id` | Mobile Home can't render without reading elders | B3.3 |
+| 3 | ✅ Add `GET /elders`, `GET /elders/:id` (applied in B3.3) | Mobile Home can't render without reading elders | B3.3 |
 | 4 | ✅ Add `elders.paused boolean default false` (applied in B1.1) | §2 lists "pause" but schema has no column | B3.2 |
-| 5 | Add `GET /elders/:id/progress` | SPEC §3 promises aggregate; no read endpoint | B5.3 |
-| 6 | Add `PATCH /medications/:id`, `GET /elders/:id/medications` | SPEC §4 says "edits"; mobile needs the list | B6.1 |
-| 7 | Add `GET /alerts`, `PATCH /alerts/:id/resolve` | Schema has `resolved_at`; mobile must list + resolve | B7.3 |
-| 8 | Add `PATCH /family-members/me` (push_token) | `push_token` column has no write path | B7.2 |
-| 9 | Add `GET /bot/titipan-queue`, `PATCH /bot/titipan/:id/delivered` | `delivered_at` has no way to be set | B8.2 |
-| 10 | Note in §2: `POST /bot/inbound` response carries CompanionConfig + `paused` + recent messages | Bot needs context in the same round-trip | B4.1 |
+| 5 | ✅ Add `GET /elders/:id/progress` (applied in B5.3) | SPEC §3 promises aggregate; no read endpoint | B5.3 |
+| 6 | ✅ Add `PATCH /medications/:id`, `GET /medications?elder_id=` (applied in B6.1, route form reconciled with mobile 2026-07-17) | SPEC §4 says "edits"; mobile needs the list | B6.1 |
+| 7 | ✅ Add `GET /alerts`, `PATCH /alerts/:id/resolve` (applied in B7.3; consolidated into `PATCH /alerts/:id` and `elder_id` made optional on the list during reconciliation 2026-07-17 — see CORE.md §2) | Schema has `resolved_at`; mobile must list + resolve | B7.3 |
+| 8 | ✅ Add `PATCH /family-members/me` (push_token) (applied in B7.2; `GET /family-members/me` also added during reconciliation 2026-07-17, mobile needs a read path too) | `push_token` column has no write path | B7.2 |
+| 9 | ✅ Add `GET /bot/titipan-queue`, `PATCH /bot/titipan/:id/delivered` (applied in B8.2; `GET /elders/:id/titipan` family list also added during reconciliation 2026-07-17 — the bot queue is undelivered-only, mobile needs full history) | `delivered_at` has no way to be set | B8.2 |
+| 10 | ✅ Note in §2: `POST /bot/inbound` response carries CompanionConfig + `paused` + recent messages (applied in B4.1) | Bot needs context in the same round-trip | B4.1 |
 
 ---
 

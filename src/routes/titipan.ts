@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { db } from "../db/index.js";
@@ -46,6 +46,23 @@ export async function titipanRoutes(app: FastifyInstance) {
 
     reply.code(201);
     return serializeTitipan(inserted!);
+  });
+
+  // Family-facing history/status list (found missing during local-connection
+  // reconciliation: mobile's M7.1 "sent list with status" needs this, and
+  // it's a different view than the bot's undelivered-only queue below —
+  // this one shows everything sent, delivered or not, newest first.
+  app.get("/elders/:id/titipan", { preHandler: requireFamily }, async (request) => {
+    const { id } = request.params as { id: string };
+    await getOwnedElder(request.familyMemberId!, id);
+
+    const rows = await db
+      .select()
+      .from(titipanMessages)
+      .where(eq(titipanMessages.elderId, id))
+      .orderBy(desc(titipanMessages.createdAt));
+
+    return rows.map(serializeTitipan);
   });
 
   app.get("/bot/titipan-queue", { preHandler: requireBot }, async (request) => {

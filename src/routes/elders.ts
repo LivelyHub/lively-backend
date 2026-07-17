@@ -30,17 +30,26 @@ const patchElderSchema = z.object({
 type ElderRow = typeof elders.$inferSelect;
 type CompanionRow = typeof companions.$inferSelect;
 
+// snake_case to match lively-mobile/lib/api/types.ts's Elder contract.
+// companion_key (not just companion_id) is included deliberately: mobile
+// resolves companion display metadata (name/avatar/tint) from a fixed
+// client-side table (lib/companions.ts) keyed by 'mbak_asih'|'mas_budi',
+// not from a server round-trip — a bare companion_id UUID gives it nothing
+// to key off (found during local-connection reconciliation: mobile's prior
+// code guessed the key by checking whether the id string contained "budi",
+// which only worked against mock fixture ids, never real UUIDs).
 function serializeElder(row: ElderRow, companion: CompanionRow) {
   return {
     id: row.id,
-    familyMemberId: row.familyMemberId,
+    family_member_id: row.familyMemberId,
     name: row.name,
     honorific: row.honorific,
-    phoneE164: row.phoneE164,
-    healthFlags: row.healthFlags,
+    companion_id: companion.id,
+    companion_key: companion.key,
+    health_flags: row.healthFlags,
+    phone_e164: row.phoneE164,
     paused: row.paused,
-    createdAt: row.createdAt,
-    companion: { id: companion.id, key: companion.key, displayName: companion.displayName },
+    created_at: row.createdAt,
   };
 }
 
@@ -110,8 +119,8 @@ export async function elderRoutes(app: FastifyInstance) {
           .where(and(eq(alerts.elderId, elder.id), isNull(alerts.resolvedAt)));
         return {
           ...serializeElder(elder, companion),
-          lastMessageAt: lastMsg?.createdAt ?? null,
-          openAlertCount: alertRow?.count ?? 0,
+          last_message_at: lastMsg?.createdAt ?? null,
+          open_alert_count: alertRow?.count ?? 0,
         };
       }),
     );

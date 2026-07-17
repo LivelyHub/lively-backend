@@ -4,10 +4,11 @@ import type { FastifyInstance } from "fastify";
 import { db } from "../db/index.js";
 import { elders, medications, medicationLogs } from "../db/schema.js";
 import { requireFamily } from "../lib/auth-guards.js";
-import { HttpError, parseBody } from "../lib/http-errors.js";
+import { HttpError, parseBody, parseQuery } from "../lib/http-errors.js";
 import { getOwnedElder } from "../lib/owned-elder.js";
 import { utcDayRange, utcTimeOfDay } from "../lib/dates.js";
 import { checkMissedDoses } from "../lib/missed-doses.js";
+import { serializeMedication } from "../lib/medications.js";
 
 const uuidSchema = z.string().uuid();
 const HH_MM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -28,20 +29,12 @@ const patchMedicationSchema = z.object({
   active: z.boolean().optional(),
 });
 
+const listQuerySchema = z.object({
+  elder_id: z.string().uuid(),
+});
+
 type MedicationRow = typeof medications.$inferSelect;
 type SlotStatus = "taken" | "unconfirmed" | "upcoming";
-
-function serializeMedication(row: MedicationRow) {
-  return {
-    id: row.id,
-    elderId: row.elderId,
-    name: row.name,
-    dosage: row.dosage,
-    scheduleTimes: row.scheduleTimes.map((t) => t.slice(0, 5)),
-    active: row.active,
-    createdAt: row.createdAt,
-  };
-}
 
 async function getOwnedMedication(familyMemberId: string, medicationId: string): Promise<MedicationRow> {
   if (!uuidSchema.safeParse(medicationId).success) {
@@ -111,18 +104,18 @@ export async function medicationRoutes(app: FastifyInstance) {
     return serializeMedication(updated!);
   });
 
-  app.get("/elders/:id/medications", { preHandler: requireFamily }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    await getOwnedElder(request.familyMemberId!, id);
+  app.get("/medications", { preHandler: requireFamily }, async (request, reply) => {
+    const query = parseQuery(listQuerySchema, request.query);
+    await getOwnedElder(request.familyMemberId!, query.elder_id);
 
-    await checkMissedDoses(id, (err: unknown) => {
+    await checkMissedDoses(query.elder_id, (err: unknown) => {
       reply.log.error(err, "push send failed");
     });
 
     const activeMeds = await db
       .select()
       .from(medications)
-      .where(and(eq(medications.elderId, id), eq(medications.active, true)));
+      .where(and(eq(medications.elderId, query.elder_id), eq(medications.active, true)));
 
     const now = new Date();
     const { start, end } = utcDayRange(now);

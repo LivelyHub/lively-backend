@@ -38,22 +38,39 @@ bot_contacts      (id, phone_e164[unique], elder_id[nullable], first_seen_at, la
 
 ### 2. API contract (Fastify, `lively-backend`)
 
+⚠️ This table was incomplete for most of the build — stories landed in the backend without the corresponding CORE.md entry being added, so `lively-mobile` had to guess several routes/shapes independently (marked `ANTICIPATED` in its `lib/api/types.ts`). Reconciled against the actual implementation during first local mobile↔backend connection testing (2026-07-16/17); this is now the real, verified contract.
+
+**Response casing:** snake_case everywhere. (Earlier revisions of this backend used camelCase for elders/medications/family-members/auth responses — an unforced inconsistency, since only progress/report ever had a documented shape. Standardized to snake_case, matching mobile's own assumption and this doc's established convention in §7.)
+
 | Endpoint | Consumer | Purpose |
 |---|---|---|
+| `POST /auth/register` | mobile | create a family member account → `{token, family_member}` |
+| `POST /auth/login` | mobile | → `{token, family_member}` |
+| `GET /family-members/me` | mobile | read own profile |
+| `PATCH /family-members/me` | mobile | update `push_token` and/or `name` |
+| `GET /elders` | mobile | list the family member's own elders |
+| `GET /elders/:id` | mobile | single elder |
 | `POST /elders` | mobile | create elder + pick companion + honorific + health flags |
-| `PATCH /elders/:id` | mobile | switch companion / honorific / pause |
-| `GET /elders/:id/conversation` | mobile | chat monitor read |
-| `POST /elders/:id/titipan` | mobile | family relay message |
+| `PATCH /elders/:id` | mobile | switch companion / honorific / health flags / pause |
+| `GET /elders/:id/conversation` | mobile | chat monitor read, `before`/`after` cursor pagination |
 | `GET /webhook` | meta | WhatsApp Cloud API webhook verification handshake — echoes `hub.challenge` when `hub.verify_token` matches `WHATSAPP_VERIFY_TOKEN` (amendment: hosted here because the backend is the publicly deployed service) |
 | `POST /webhook` | meta | WhatsApp Cloud API message delivery — `X-Hub-Signature-256` verified against `META_APP_SECRET`; inbound texts stored via the same path as `/bot/inbound` (bot_contacts upsert + conversation log). Reply generation is NOT here — still `lively-bot`'s job |
 | `POST /bot/inbound` | bot | log inbound WhatsApp message, fetch companion context; upserts `bot_contacts` for every sender (unknown numbers are recorded, then 404) |
 | `POST /bot/outbound` | bot | log outbound message after send |
 | `POST /assessments/chair-test` | bot | record parsed chair-test result |
-| `POST /exercise-logs` | bot | record daily completion |
-| `POST /medications` | mobile | family adds/edits a routine medication for the elder |
+| `POST /exercise-logs` | bot | record daily completion (idempotent per day) |
+| `GET /medications?elder_id=` | mobile | list active medications + today's per-slot status |
+| `POST /medications` | mobile | family adds a routine medication for the elder |
+| `PATCH /medications/:id` | mobile | edit, or soft-disable via `active:false` |
 | `POST /medication-logs` | bot | record a taken/confirmed dose from a chat reply |
-| `POST /alerts` | bot | raise pain/dizziness/missed-day/no-response/emergency alert → triggers push |
-| `GET /elders/:id/progress` | mobile | progress bar %, engagement streak, and chart-ready history (chair tests, exercise, medication adherence) — see §7 |
+| `POST /alerts` | bot | raise pain/dizziness/missed-day/no-response/emergency/medication-missed alert → triggers push |
+| `GET /alerts?elder_id=&unresolved_only=` | mobile | `elder_id` optional — omitted means every alert across every elder the family member owns |
+| `PATCH /alerts/:id` | mobile | body `{resolved:true}` to resolve (idempotent), or `{type:'emergency'}` to manually escalate (CORE §6) — one endpoint, two actions, not two routes |
+| `POST /elders/:id/titipan` | mobile | family relay message |
+| `GET /elders/:id/titipan` | mobile | sent titipan history + delivery status |
+| `GET /bot/titipan-queue?elder_id=` | bot | undelivered titipan, oldest first |
+| `PATCH /bot/titipan/:id/delivered` | bot | mark a titipan delivered (idempotent) |
+| `GET /elders/:id/progress` | mobile | raw activity arrays + progress bar %, engagement streak, chart-ready history — see §7 |
 | `GET /elders/:id/report?period=week\|month` | mobile | family-facing performance summary — see §7 |
 
 Auth: mobile uses family member JWT (issued by backend). Bot uses a static `BOT_SERVICE_KEY` header — service-to-service, not a user session.
@@ -109,9 +126,15 @@ The 15-rep and 7-day benchmarks are demo tuning constants, not clinical threshol
 **Engagement streak** (`GET /elders/:id/progress` → `engagement_streak_days`): consecutive calendar days with at least one of {`exercise_logs` row, `medication_logs` row, `chair_test_results` row}. Broader than the exercise-only streak already in `exercise.current_streak_days` — this is the single "🔥 N day streak" number the Progress screen leads with.
 
 **Progress graphs** (`GET /elders/:id/progress`, chart-ready, oldest→newest):
-- `chair_tests`: already existed — reps over time, capped last 20
-- `exercise_history`: last 30 days, `[{date, completed}]`
-- `medication_adherence_trend`: last 30 days, `[{date, taken, scheduled}]`
+- `chair_tests`: reps over time, capped last 20
+- `exercise.this_week`: the **current Monday–Sunday calendar week** (not a rolling window — the day-dot streak row needs real "future" days when today isn't Sunday yet), `[{date, status: 'done'|'missed'|'future'}]`
+- `exercise_history`: last 30 days, rolling, `[{date, completed}]`
+- `medication_adherence`: `{last7d_taken, last7d_scheduled, pct, unconfirmed_today}`
+- `medication_adherence_trend`: last 30 days, rolling, `[{date, taken, scheduled}]`
+
+`GET /elders/:id/progress` also returns the raw `chair_test_results`, `exercise_logs`, `medications` (active and inactive), and `medication_logs` arrays alongside the computed fields above — mobile's Home "today at a glance" row reads these directly rather than re-deriving them from the aggregates.
+
+**Elder responses carry `companion_key`, not just `companion_id`:** the two companions are fixed personas — mobile resolves display metadata (name/avatar/tint) from a client-side table keyed by `'mbak_asih'|'mas_budi'`, not a server round-trip, so it needs the key, not just an opaque id.
 
 **Performance report** (`GET /elders/:id/report?period=week|month`, family JWT + ownership): a family-facing summary, not an elder-facing one — different audience, different tone. Always lead positive; "areas needing support" is framed as encouragement, never a guilt trip (per the feedback: this should not feel like a burden to check).
 ```json

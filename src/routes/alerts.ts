@@ -18,16 +18,23 @@ const createAlertSchema = z.object({
 });
 
 const alertsQuerySchema = z.object({
-  elder_id: z.string().uuid(),
+  // Optional (found during local-connection reconciliation: mobile calls
+  // GET /alerts with no elder_id at all for a cross-elder alert banner) —
+  // when omitted, alerts span every elder owned by the authenticated
+  // family member instead of one.
+  elder_id: z.string().uuid().optional(),
   unresolved_only: z
     .enum(["true", "false"])
     .optional()
     .transform((v) => v === "true"),
 });
 
-// Manual-urgent escalation (CORE §6): family can only push an alert to
-// 'emergency', not edit type freely — this isn't a general PATCH.
-const escalateSchema = z.object({ type: z.literal("emergency") });
+// One PATCH /alerts/:id body shape covers two distinct family actions:
+// resolving (CORE §2) and manual-urgent escalation (CORE §6 — only ever to
+// 'emergency', never a free-form type edit). Consolidated into one route
+// (dropping the separate /resolve sub-route) because mobile's client only
+// ever calls PATCH /alerts/:id.
+const patchAlertSchema = z.union([z.object({ resolved: z.literal(true) }), z.object({ type: z.literal("emergency") })]);
 
 type AlertRow = typeof alerts.$inferSelect;
 
@@ -75,32 +82,42 @@ export async function alertRoutes(app: FastifyInstance) {
 
   app.get("/alerts", { preHandler: requireFamily }, async (request) => {
     const query = parseQuery(alertsQuerySchema, request.query);
-    await getOwnedElder(request.familyMemberId!, query.elder_id);
 
-    const whereClause = query.unresolved_only
-      ? and(eq(alerts.elderId, query.elder_id), isNull(alerts.resolvedAt))
-      : eq(alerts.elderId, query.elder_id);
-
-    const rows = await db.select().from(alerts).where(whereClause).orderBy(desc(alerts.createdAt));
-    return rows.map(serializeAlert);
-  });
-
-  app.patch("/alerts/:id/resolve", { preHandler: requireFamily }, async (request) => {
-    const { id } = request.params as { id: string };
-    const existing = await getOwnedAlert(request.familyMemberId!, id);
-
-    if (existing.resolvedAt) {
-      return serializeAlert(existing);
+    if (query.elder_id) {
+      await getOwnedElder(request.familyMemberId!, query.elder_id);
+      const whereClause = query.unresolved_only
+        ? and(eq(alerts.elderId, query.elder_id), isNull(alerts.resolvedAt))
+        : eq(alerts.elderId, query.elder_id);
+      const rows = await db.select().from(alerts).where(whereClause).orderBy(desc(alerts.createdAt));
+      return rows.map(serializeAlert);
     }
 
-    const [updated] = await db.update(alerts).set({ resolvedAt: new Date() }).where(eq(alerts.id, id)).returning();
-    return serializeAlert(updated!);
+    // No elder_id: every alert across every elder this family member owns.
+    const rows = await db
+      .select({ alert: alerts })
+      .from(alerts)
+      .innerJoin(elders, eq(alerts.elderId, elders.id))
+      .where(
+        query.unresolved_only
+          ? and(eq(elders.familyMemberId, request.familyMemberId!), isNull(alerts.resolvedAt))
+          : eq(elders.familyMemberId, request.familyMemberId!),
+      )
+      .orderBy(desc(alerts.createdAt));
+    return rows.map(({ alert }) => serializeAlert(alert));
   });
 
   app.patch("/alerts/:id", { preHandler: requireFamily }, async (request) => {
     const { id } = request.params as { id: string };
     const existing = await getOwnedAlert(request.familyMemberId!, id);
-    parseBody(escalateSchema, request.body);
+    const body = parseBody(patchAlertSchema, request.body);
+
+    if ("resolved" in body) {
+      if (existing.resolvedAt) {
+        return serializeAlert(existing);
+      }
+      const [updated] = await db.update(alerts).set({ resolvedAt: new Date() }).where(eq(alerts.id, id)).returning();
+      return serializeAlert(updated!);
+    }
 
     const [updated] = await db.update(alerts).set({ type: "emergency" }).where(eq(alerts.id, id)).returning();
 
