@@ -23,7 +23,7 @@ Lively has one shared foundation underneath four different surfaces: a marketing
 ### 1. Data model — Postgres on Neon
 
 ```
-elders            (id, family_member_id, name, honorific, companion_id, health_flags[], phone_e164[unique], paused, created_at)
+elders            (id, family_member_id, name, honorific, companion_id, health_flags[], personalize[jsonb, nullable], phone_e164[unique], paused, created_at)
 family_members    (id, email, name, password_hash, push_token, created_at)
 companions        (id, key['mbak_asih'|'mas_budi'][unique], display_name, system_prompt_ref)
 conversations     (id, elder_id, direction['in'|'out'], body, created_at)
@@ -50,8 +50,8 @@ bot_contacts      (id, phone_e164[unique], elder_id[nullable], first_seen_at, la
 | `PATCH /family-members/me` | mobile | update `push_token` and/or `name` |
 | `GET /elders` | mobile | list the family member's own elders |
 | `GET /elders/:id` | mobile | single elder |
-| `POST /elders` | mobile | create elder + pick companion + honorific + health flags |
-| `PATCH /elders/:id` | mobile | switch companion / honorific / health flags / pause |
+| `POST /elders` | mobile | create elder + pick companion + honorific + health flags + optional personalize |
+| `PATCH /elders/:id` | mobile | switch companion / honorific / health flags / personalize / pause |
 | `GET /elders/:id/conversation` | mobile | chat monitor read, `before`/`after` cursor pagination |
 | `GET /webhook` | meta | WhatsApp Cloud API webhook verification handshake — echoes `hub.challenge` when `hub.verify_token` matches `WHATSAPP_VERIFY_TOKEN` (amendment: hosted here because the backend is the publicly deployed service) |
 | `POST /webhook` | meta | WhatsApp Cloud API message delivery — `X-Hub-Signature-256` verified against `META_APP_SECRET`; inbound texts stored via the same path as `/bot/inbound` (bot_contacts upsert + conversation log). Reply generation is NOT here — still `lively-bot`'s job |
@@ -82,6 +82,20 @@ interface CompanionConfig {
   key: "mbak_asih" | "mas_budi";
   honorific: string;        // e.g. "Eyang Uti" — never a bare first name
   healthFlags: string[];    // e.g. ["knee_pain", "hypertension"]
+  personalize: ElderPersonalize | null; // free-form persona detail, see below
+}
+
+// All fields optional — profile fills in gradually. Collected by mobile's
+// profile-completion flow (not the initial elder form), forwarded verbatim
+// to lively-bot via POST /bot/inbound's `companion.personalize`. lively-bot
+// uses this to build its own richer per-elder system prompt ("SOUL.md") —
+// the conversion itself is lively-bot's job, this is just the raw material.
+interface ElderPersonalize {
+  family?: { name: string; relation: string }[];
+  hobbies?: string[];
+  favorite_topics?: string[];
+  avoid_topics?: string[];
+  speech_style?: string;
 }
 ```
 The system prompt text itself lives in `lively-bot` (not shared as data) — this interface is only the parameters that vary per elder.

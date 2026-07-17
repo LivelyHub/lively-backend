@@ -4,13 +4,29 @@ import type { FastifyInstance } from "fastify";
 import { db } from "../../db/index.js";
 import { elders, companions, conversations, alerts } from "../../db/schema.js";
 import { requireFamily } from "../../shared/auth-guards.js";
-import { parseBody } from "../../shared/http-errors.js";
+import { HttpError, isUniqueViolation, parseBody } from "../../shared/http-errors.js";
 import { COMPANION_KEYS, findCompanionByKey, findCompanionById } from "./service.js";
 import { getOwnedElder } from "../../shared/owned-elder.js";
+import { sendElderIntroMessage } from "./intro.js";
 
 const PHONE_E164_REGEX = /^\+[1-9]\d{6,14}$/;
 
 const healthFlagsSchema = z.array(z.string().trim().min(1).max(60)).max(20);
+
+const shortStringList = z.array(z.string().trim().min(1).max(120)).max(20);
+
+// Loose on purpose: profile fills in gradually, LLM prompt-building on the
+// bot side tolerates partial/messy data — no enums, no required fields.
+const personalizeSchema = z.object({
+  family: z
+    .array(z.object({ name: z.string().trim().min(1).max(100), relation: z.string().trim().min(1).max(60) }))
+    .max(20)
+    .optional(),
+  hobbies: shortStringList.optional(),
+  favorite_topics: shortStringList.optional(),
+  avoid_topics: shortStringList.optional(),
+  speech_style: z.string().trim().min(1).max(500).optional(),
+});
 
 const createElderSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -18,6 +34,7 @@ const createElderSchema = z.object({
   phone_e164: z.string().regex(PHONE_E164_REGEX, "Must be E.164 format, e.g. +628123456789"),
   companion_key: z.enum(COMPANION_KEYS),
   health_flags: healthFlagsSchema.default([]),
+  personalize: personalizeSchema.optional(),
 });
 
 const patchElderSchema = z.object({
@@ -25,6 +42,7 @@ const patchElderSchema = z.object({
   companion_key: z.enum(COMPANION_KEYS).optional(),
   health_flags: healthFlagsSchema.optional(),
   paused: z.boolean().optional(),
+  personalize: personalizeSchema.optional(),
 });
 
 type ElderRow = typeof elders.$inferSelect;
@@ -47,6 +65,7 @@ function serializeElder(row: ElderRow, companion: CompanionRow) {
     companion_id: companion.id,
     companion_key: companion.key,
     health_flags: row.healthFlags,
+    personalize: row.personalize ?? null,
     phone_e164: row.phoneE164,
     paused: row.paused,
     created_at: row.createdAt,
@@ -58,17 +77,28 @@ export async function elderRoutes(app: FastifyInstance) {
     const body = parseBody(createElderSchema, request.body);
     const companion = await findCompanionByKey(body.companion_key);
 
-    const [inserted] = await db
-      .insert(elders)
-      .values({
-        familyMemberId: request.familyMemberId!,
-        name: body.name,
-        honorific: body.honorific,
-        companionId: companion.id,
-        healthFlags: body.health_flags,
-        phoneE164: body.phone_e164,
-      })
-      .returning();
+    let inserted;
+    try {
+      [inserted] = await db
+        .insert(elders)
+        .values({
+          familyMemberId: request.familyMemberId!,
+          name: body.name,
+          honorific: body.honorific,
+          companionId: companion.id,
+          healthFlags: body.health_flags,
+          personalize: body.personalize,
+          phoneE164: body.phone_e164,
+        })
+        .returning();
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new HttpError(409, "CONFLICT", "An elder with this phone number already exists");
+      }
+      throw err;
+    }
+
+    sendElderIntroMessage(inserted, companion, app.log);
 
     reply.code(201);
     return serializeElder(inserted, companion);
@@ -89,6 +119,7 @@ export async function elderRoutes(app: FastifyInstance) {
         honorific: body.honorific ?? existing.honorific,
         healthFlags: body.health_flags ?? existing.healthFlags,
         paused: body.paused ?? existing.paused,
+        personalize: body.personalize ?? existing.personalize,
         companionId,
       })
       .where(eq(elders.id, id))

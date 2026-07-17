@@ -1,0 +1,1 @@
+ALTER TABLE "elders" ADD COLUMN "personalize" jsonb;

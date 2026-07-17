@@ -57,7 +57,12 @@ export async function conversationRoutes(app: FastifyInstance) {
 
     return {
       elder_id: elder.id,
-      companion: { key: companion.key, honorific: elder.honorific, healthFlags: elder.healthFlags },
+      companion: {
+        key: companion.key,
+        honorific: elder.honorific,
+        healthFlags: elder.healthFlags,
+        personalize: elder.personalize ?? null,
+      },
       paused: elder.paused,
       recent_messages: recent.reverse().map(serializeMessage),
     };

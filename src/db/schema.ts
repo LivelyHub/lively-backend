@@ -15,6 +15,14 @@ import {
 // Enum-like fields use pg native enums, not text+TS-narrowing, so bad
 // values are rejected by Postgres itself (BACKLOG.md B1.1's own test).
 
+export interface ElderPersonalize {
+  family?: { name: string; relation: string }[];
+  hobbies?: string[];
+  favorite_topics?: string[];
+  avoid_topics?: string[];
+  speech_style?: string;
+}
+
 export const companionKeyEnum = pgEnum("companion_key", ["mbak_asih", "mas_budi"]);
 export const directionEnum = pgEnum("direction", ["in", "out"]);
 export const chairTestSourceEnum = pgEnum("chair_test_source", ["chat"]);
@@ -58,6 +66,11 @@ export const elders = pgTable("elders", {
     .notNull()
     .references(() => companions.id),
   healthFlags: text("health_flags").array().notNull().default([]),
+  // Free-form persona detail (hobbies, family names, speech style, etc.)
+  // collected by mobile's profile-completion flow, not the initial elder
+  // form — forwarded to lively-bot via POST /bot/inbound's companion object
+  // so it can build a richer per-elder system prompt ("SOUL.md").
+  personalize: jsonb("personalize").$type<ElderPersonalize>(),
   // unique: POST /bot/inbound (CORE.md §2) resolves the elder by phone —
   // without this, two elders sharing a number would make that lookup ambiguous.
   phoneE164: text("phone_e164").notNull().unique(),

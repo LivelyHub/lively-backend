@@ -20,6 +20,7 @@ import { reportRoutes } from "./modules/report/routes.js";
 import { webhookRoutes } from "./modules/webhook/routes.js";
 import { uploadRoutes } from "./modules/uploads/routes.js";
 import { UPLOAD_DIR } from "./shared/uploads.js";
+import { startScheduler } from "./shared/scheduler.js";
 import type { HttpError } from "./shared/http-errors.js";
 import { mkdir } from "node:fs/promises";
 
@@ -122,6 +123,8 @@ await app.register(titipanRoutes);
 await app.register(reportRoutes);
 await app.register(webhookRoutes);
 await app.register(uploadRoutes);
+
+startScheduler(app.log);
 
 app.listen({ port, host: "0.0.0.0" }).catch((err) => {
   app.log.error(err);
