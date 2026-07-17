@@ -4,34 +4,27 @@ import { chairTestResults, exerciseLogs, medications, medicationLogs, elders } f
 import { toUtcDateString } from "./dates.js";
 
 type Period = "week" | "month";
-type ChairTrend = "improving" | "stable" | "declining";
 
+// Mirrors lively-mobile/lib/api/mocks/computeReport.ts exactly (shape,
+// algorithm, and copy) — that's the mobile team's real reference
+// implementation, built around this exact PerformanceReport contract.
+// Adapted to UTC day boundaries for server-side consistency (the mock
+// uses local calendar dates; a server has no meaningful "local").
 function rangeDays(period: Period): number {
   return period === "month" ? 30 : 7;
 }
 
-// Rolling window (last N days including today), same convention as B5.3's
-// exercise_history/medication_adherence_trend — not a calendar month, for
-// consistency across the API rather than introducing a second definition
-// of "period." Upper bound is exclusive (tomorrow 00:00 UTC), not an
-// inclusive same-day Date, to avoid the JS-Date-vs-timestamptz precision
-// mismatch already caught and fixed in B4.3's cursor pagination.
-function dateRange(days: number) {
-  const todayStart = new Date();
-  todayStart.setUTCHours(0, 0, 0, 0);
-  const queryFrom = new Date(todayStart.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
-  const queryToExclusive = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
-  return {
-    queryFrom,
-    queryToExclusive,
-    fromStr: toUtcDateString(queryFrom),
-    toStr: toUtcDateString(todayStart),
-  };
+function pct(part: number, whole: number): number {
+  return whole > 0 ? Math.round((part / whole) * 100) : 0;
 }
 
 export async function computeReport(elderId: string, period: Period) {
   const days = rangeDays(period);
-  const { queryFrom, queryToExclusive, fromStr, toStr } = dateRange(days);
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const start = new Date(today.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+  const queryToExclusive = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  const periodWord = period === "week" ? "minggu" : "bulan";
 
   const [elder] = await db.select().from(elders).where(eq(elders.id, elderId));
   const honorific = elder?.honorific ?? "Eyang";
@@ -40,105 +33,106 @@ export async function computeReport(elderId: string, period: Period) {
     db
       .select()
       .from(chairTestResults)
-      .where(
-        and(
-          eq(chairTestResults.elderId, elderId),
-          gte(chairTestResults.recordedAt, queryFrom),
-          lt(chairTestResults.recordedAt, queryToExclusive),
-        ),
-      )
+      .where(and(eq(chairTestResults.elderId, elderId), gte(chairTestResults.recordedAt, start), lt(chairTestResults.recordedAt, queryToExclusive)))
       .orderBy(asc(chairTestResults.recordedAt)),
     db
       .select()
       .from(exerciseLogs)
-      .where(
-        and(eq(exerciseLogs.elderId, elderId), gte(exerciseLogs.completedAt, queryFrom), lt(exerciseLogs.completedAt, queryToExclusive)),
-      ),
+      .where(and(eq(exerciseLogs.elderId, elderId), gte(exerciseLogs.completedAt, start), lt(exerciseLogs.completedAt, queryToExclusive))),
     db.select().from(medications).where(and(eq(medications.elderId, elderId), eq(medications.active, true))),
     db
       .select()
       .from(medicationLogs)
-      .where(
-        and(eq(medicationLogs.elderId, elderId), gte(medicationLogs.takenAt, queryFrom), lt(medicationLogs.takenAt, queryToExclusive)),
-      ),
+      .where(and(eq(medicationLogs.elderId, elderId), gte(medicationLogs.takenAt, start), lt(medicationLogs.takenAt, queryToExclusive))),
   ]);
 
-  const exerciseDates = new Set(exerciseRows.map((r) => toUtcDateString(r.completedAt)));
-  const chairDates = new Set(chairRows.map((r) => toUtcDateString(r.recordedAt)));
-  const medDates = new Set(medLogRows.map((r) => toUtcDateString(r.takenAt)));
-  const engagementDates = new Set([...exerciseDates, ...chairDates, ...medDates]);
-  const consistencyPct = Math.round((engagementDates.size / days) * 100);
+  const exerciseDays = new Set(exerciseRows.map((r) => toUtcDateString(r.completedAt)));
+  const medDays = new Set(medLogRows.map((r) => toUtcDateString(r.takenAt)));
+  const chairDays = chairRows.map((r) => toUtcDateString(r.recordedAt));
+  const activeDays = new Set([...exerciseDays, ...medDays, ...chairDays]);
 
-  const exercise = { completed_days: exerciseDates.size, total_days: days };
-
-  const scheduledPerDay = activeMeds.reduce((sum, m) => sum + m.scheduleTimes.length, 0);
-  const totalScheduled = scheduledPerDay * days;
-  const medicationAdherencePct = totalScheduled > 0 ? Math.round((medLogRows.length / totalScheduled) * 100) : null;
-
-  let chairTestTrend: ChairTrend = "stable";
-  if (chairRows.length >= 2) {
-    const first = chairRows[0]!.reps;
-    const last = chairRows[chairRows.length - 1]!.reps;
-    if (last > first) chairTestTrend = "improving";
-    else if (last < first) chairTestTrend = "declining";
+  // Medication adherence: a med only counts toward "scheduled" on days on
+  // or after it was created, and a day's taken count is capped at that
+  // day's scheduled count (a duplicate/extra log never inflates the pct).
+  function scheduledOn(dayStart: Date): number {
+    const nextDayStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    let count = 0;
+    for (const med of activeMeds) {
+      if (med.createdAt.getTime() < nextDayStart.getTime()) count += med.scheduleTimes.length;
+    }
+    return count;
+  }
+  const logsByDay = new Map<string, number>();
+  for (const log of medLogRows) {
+    const key = toUtcDateString(log.takenAt);
+    logsByDay.set(key, (logsByDay.get(key) ?? 0) + 1);
+  }
+  let taken = 0;
+  let scheduled = 0;
+  for (let i = 0; i < days; i++) {
+    const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+    const sched = scheduledOn(d);
+    taken += Math.min(logsByDay.get(toUtcDateString(d)) ?? 0, sched);
+    scheduled += sched;
   }
 
-  const isZeroData = consistencyPct === 0;
-  const highlights: string[] = [];
-  const areasNeedingSupport: string[] = [];
+  const consistencyPct = pct(activeDays.size, days);
+  const exerciseCompletionPct = pct(exerciseDays.size, days);
+  const medicationAdherencePct = pct(taken, scheduled);
+
+  const chairFirst = chairRows.length > 0 ? chairRows[0]!.reps : null;
+  const chairLatest = chairRows.length > 0 ? chairRows[chairRows.length - 1]!.reps : null;
+  const chairTestDelta = chairRows.length >= 2 && chairFirst !== null && chairLatest !== null ? chairLatest - chairFirst : null;
+
+  const hasData = activeDays.size > 0;
+
   let headline: string;
-
-  if (isZeroData) {
-    headline = `${honorific} is just getting started`;
-  } else if (consistencyPct >= 70) {
-    headline = `${honorific} had a great ${period}!`;
-  } else if (consistencyPct >= 40) {
-    headline = `${honorific} is making progress this ${period}`;
+  if (!hasData) {
+    headline = `Belum cukup data ${periodWord} ini. Ringkasan akan muncul setelah ${honorific} mulai beraktivitas.`;
+  } else if (consistencyPct >= 80) {
+    headline = `${honorific} sangat konsisten ${periodWord} ini, aktif ${activeDays.size} dari ${days} hari.`;
+  } else if (consistencyPct >= 50) {
+    headline = `${honorific} cukup aktif ${periodWord} ini, ${activeDays.size} dari ${days} hari.`;
   } else {
-    headline = `${honorific} could use a little extra encouragement this ${period}`;
+    headline = `${honorific} sudah mulai bergerak ${periodWord} ini. Setiap hari aktif itu berarti.`;
   }
 
-  // Highlights are opt-in per category — only added when there's genuinely
-  // good news, never spun from a bad number. Zero-data elders get no
-  // highlights/areas at all, just the gentle headline above.
-  if (!isZeroData) {
-    if (exercise.completed_days > 0) {
-      highlights.push(`Exercised ${exercise.completed_days} of ${exercise.total_days} days`);
-    }
-    if (chairTestTrend === "improving") {
-      highlights.push(`Chair test reps up from ${chairRows[0]!.reps} to ${chairRows[chairRows.length - 1]!.reps}`);
-    } else if (chairTestTrend === "stable" && chairRows.length > 0) {
-      highlights.push(`Chair test steady at ${chairRows[chairRows.length - 1]!.reps} reps`);
-    }
-    if (medicationAdherencePct !== null && medicationAdherencePct >= 80) {
-      highlights.push(`Medication adherence at ${medicationAdherencePct}% this ${period}`);
-    }
+  const highlights: string[] = [];
+  if (chairTestDelta !== null && chairTestDelta > 0) {
+    highlights.push(`Tes kursi naik dari ${chairFirst} ke ${chairLatest} kali, kekuatan kaki membaik.`);
+  }
+  if (exerciseCompletionPct >= 60) {
+    highlights.push(`Rajin latihan kursi, ${exerciseDays.size} dari ${days} hari.`);
+  }
+  if (scheduled > 0 && medicationAdherencePct >= 85) {
+    highlights.push(`Obat diminum teratur (${medicationAdherencePct}%).`);
+  }
+  if (highlights.length === 0 && hasData) {
+    highlights.push(`${honorific} tetap terhubung dengan pendamping setiap hari.`);
+  }
 
-    // Encouragement-framed, never a guilt trip — no "missed X doses" or
-    // day-pinpointed misses (medication_logs has no slot column to know
-    // which day/dose precisely, same limitation as B5.3/B6).
-    if (exercise.total_days > 0 && exercise.completed_days / exercise.total_days < 0.5) {
-      areasNeedingSupport.push("Could use encouragement to keep up the exercise routine");
-    }
-    if (medicationAdherencePct !== null && medicationAdherencePct < 70) {
-      areasNeedingSupport.push("Could use a nudge on medication doses");
-    }
-    if (chairTestTrend === "declining") {
-      areasNeedingSupport.push("Chair test trending down — worth checking in");
-    }
-    if (consistencyPct < 30 && highlights.length === 0 && areasNeedingSupport.length === 0) {
-      areasNeedingSupport.push(`Not much activity logged this ${period} — a call might help`);
-    }
+  const areasNeedingSupport: string[] = [];
+  if (scheduled > 0 && medicationAdherencePct < 70) {
+    areasNeedingSupport.push("Beberapa dosis obat terlewat. Pengingat tambahan mungkin membantu.");
+  }
+  if (exerciseCompletionPct < 40 && hasData) {
+    areasNeedingSupport.push("Latihan kursi sempat jarang. Tidak apa-apa, pelan-pelan saja.");
+  }
+  if (chairTestDelta !== null && chairTestDelta < 0) {
+    areasNeedingSupport.push("Tes kursi sedikit menurun. Wajar naik-turun, tetap semangat menemani.");
   }
 
   return {
     period,
-    range: { from: fromStr, to: toStr },
+    range_start: toUtcDateString(start),
+    range_end: toUtcDateString(today),
+    has_data: hasData,
     headline,
     consistency_pct: consistencyPct,
-    exercise,
+    exercise_completion_pct: exerciseCompletionPct,
     medication_adherence_pct: medicationAdherencePct,
-    chair_test_trend: chairTestTrend,
+    chair_test_latest: chairLatest,
+    chair_test_delta: chairTestDelta,
     highlights,
     areas_needing_support: areasNeedingSupport,
   };
