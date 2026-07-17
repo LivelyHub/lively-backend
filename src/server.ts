@@ -18,7 +18,15 @@ import { reportRoutes } from "./routes/report.js";
 import { webhookRoutes } from "./routes/webhook.js";
 import type { HttpError } from "./lib/http-errors.js";
 
-const app = Fastify({ logger: true });
+const app = Fastify({
+  logger: {
+    level: process.env.LOG_LEVEL ?? "info",
+    transport:
+      process.env.NODE_ENV === "production"
+        ? undefined
+        : { target: "pino-pretty", options: { colorize: true, translateTime: "HH:MM:ss", ignore: "pid,hostname" } },
+  },
+});
 
 app.setErrorHandler((error: FastifyError | HttpError, _request, reply) => {
   app.log.error(error);
