@@ -44,7 +44,8 @@ bot_contacts      (id, phone_e164[unique], elder_id[nullable], first_seen_at, la
 | `PATCH /elders/:id` | mobile | switch companion / honorific / pause |
 | `GET /elders/:id/conversation` | mobile | chat monitor read |
 | `POST /elders/:id/titipan` | mobile | family relay message |
-| `GET /webhook` | meta | WhatsApp Cloud API webhook verification handshake — echoes `hub.challenge` when `hub.verify_token` matches `WHATSAPP_VERIFY_TOKEN` (amendment: hosted here because the backend is the publicly deployed service; message delivery POST still TBD) |
+| `GET /webhook` | meta | WhatsApp Cloud API webhook verification handshake — echoes `hub.challenge` when `hub.verify_token` matches `WHATSAPP_VERIFY_TOKEN` (amendment: hosted here because the backend is the publicly deployed service) |
+| `POST /webhook` | meta | WhatsApp Cloud API message delivery — `X-Hub-Signature-256` verified against `META_APP_SECRET`; inbound texts stored via the same path as `/bot/inbound` (bot_contacts upsert + conversation log). Reply generation is NOT here — still `lively-bot`'s job |
 | `POST /bot/inbound` | bot | log inbound WhatsApp message, fetch companion context; upserts `bot_contacts` for every sender (unknown numbers are recorded, then 404) |
 | `POST /bot/outbound` | bot | log outbound message after send |
 | `POST /assessments/chair-test` | bot | record parsed chair-test result |

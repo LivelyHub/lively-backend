@@ -2,11 +2,12 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { db } from "../db/index.js";
-import { elders, conversations, botContacts } from "../db/schema.js";
+import { elders, conversations } from "../db/schema.js";
 import { requireBot, requireFamily } from "../lib/auth-guards.js";
 import { HttpError, parseBody, parseQuery } from "../lib/http-errors.js";
 import { findCompanionById } from "../lib/companions.js";
 import { getOwnedElder } from "../lib/owned-elder.js";
+import { recordInboundMessage } from "../lib/record-inbound.js";
 
 const PHONE_E164_REGEX = /^\+[1-9]\d{6,14}$/;
 
@@ -41,27 +42,10 @@ function serializeMessage(row: ConversationRow) {
 export async function conversationRoutes(app: FastifyInstance) {
   app.post("/bot/inbound", { preHandler: requireBot }, async (request) => {
     const body = parseBody(inboundSchema, request.body);
-    const [elder] = await db.select().from(elders).where(eq(elders.phoneE164, body.elder_phone_e164));
-
-    // Record the sender before the elder check so unknown numbers are
-    // stored too (CORE.md §1 bot_contacts) — the 404 below still applies.
-    await db
-      .insert(botContacts)
-      .values({ elderId: elder?.id ?? null, phoneE164: body.elder_phone_e164 })
-      .onConflictDoUpdate({
-        target: botContacts.phoneE164,
-        set: {
-          elderId: elder?.id ?? null,
-          lastSeenAt: sql`now()`,
-          messageCount: sql`${botContacts.messageCount} + 1`,
-        },
-      });
-
+    const elder = await recordInboundMessage(body.elder_phone_e164, body.body);
     if (!elder) {
       throw new HttpError(404, "NOT_FOUND", "No elder with this phone number");
     }
-
-    await db.insert(conversations).values({ elderId: elder.id, direction: "in", body: body.body });
 
     const companion = await findCompanionById(elder.companionId);
     const recent = await db
