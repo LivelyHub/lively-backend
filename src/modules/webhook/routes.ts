@@ -3,12 +3,15 @@ import type { FastifyInstance } from "fastify";
 import { safeCompare } from "../../shared/auth-guards.js";
 import { recordInboundMessage } from "../conversations/service.js";
 import { deliverCompanionReply } from "../../shared/companion-reply.js";
+import { raiseAlert } from "../alerts/service.js";
+import { sendCaregiverAlertButton } from "../elders/intro.js";
 
 interface WhatsAppTextMessage {
   from?: string;
   id?: string;
   type?: string;
   text?: { body?: string };
+  button?: { text?: string; payload?: string };
 }
 
 interface WebhookPayload {
@@ -82,8 +85,31 @@ export async function webhookRoutes(app: FastifyInstance) {
       for (const change of entry.changes ?? []) {
         if (change.field !== "messages") continue;
         for (const message of change.value?.messages ?? []) {
-          if (message.type !== "text" || !message.text?.body || !message.from) continue;
+          if (!message.from) continue;
           const phoneE164 = `+${message.from}`;
+
+          if (message.type === "button" && message.button?.text) {
+            // Elder tapped "Notify Caregiver" on the template card. Raises
+            // an emergency alert (push-notifies family, per alerts/service.js)
+            // and drops a fresh button card back in the chat so there's
+            // always one ready for next time.
+            try {
+              const elder = await recordInboundMessage(phoneE164, message.button.text);
+              if (elder) {
+                await raiseAlert(elder.id, "emergency", { quote: message.button.text }, (err) => {
+                  app.log.error({ err, elderId: elder.id }, "failed to push caregiver alert");
+                });
+                sendCaregiverAlertButton(elder, app.log);
+              } else {
+                app.log.info({ phoneE164 }, "caregiver alert button from unregistered number");
+              }
+            } catch (err) {
+              app.log.error({ err, phoneE164 }, "failed to process caregiver alert button");
+            }
+            continue;
+          }
+
+          if (message.type !== "text" || !message.text?.body) continue;
           try {
             const elder = await recordInboundMessage(phoneE164, message.text.body);
             if (!elder) {
