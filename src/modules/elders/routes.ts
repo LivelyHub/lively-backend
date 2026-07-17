@@ -8,6 +8,7 @@ import { HttpError, isUniqueViolation, parseBody } from "../../shared/http-error
 import { COMPANION_KEYS, findCompanionByKey, findCompanionById } from "./service.js";
 import { getOwnedElder } from "../../shared/owned-elder.js";
 import { sendElderIntroMessage } from "./intro.js";
+import { syncElderSoul } from "../../shared/bot-sync.js";
 
 const PHONE_E164_REGEX = /^\+[1-9]\d{6,14}$/;
 
@@ -98,6 +99,7 @@ export async function elderRoutes(app: FastifyInstance) {
       throw err;
     }
 
+    syncElderSoul(inserted, companion, app.log);
     sendElderIntroMessage(inserted, companion, app.log);
 
     reply.code(201);
@@ -126,6 +128,7 @@ export async function elderRoutes(app: FastifyInstance) {
       .returning();
 
     const companion = await findCompanionById(updated.companionId);
+    syncElderSoul(updated, companion, app.log);
     return serializeElder(updated, companion);
   });
 

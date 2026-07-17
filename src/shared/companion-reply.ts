@@ -1,14 +1,15 @@
 import type { FastifyBaseLogger } from "fastify";
 import { db } from "../db/index.js";
 import { conversations, type elders } from "../db/schema.js";
-import { findCompanionById } from "../modules/elders/service.js";
 import { sendWhatsAppText, whatsappSendConfigured } from "./whatsapp.js";
 
 type ElderRow = typeof elders.$inferSelect;
 
-// lively-bot's POST /reply contract (TODO-INTEGRATION.md): context is
-// optional but must always be sent once elder setup exists, otherwise
-// every elder gets the same default persona/honorific.
+// lively-bot's POST /reply contract (src/server.ts on that side): the
+// companion persona is no longer sent per-call — it's registered once via
+// POST /soul (see shared/bot-sync.ts, called from elders/routes.ts) and
+// persists bot-side. Only the per-turn text and the freeform personalize
+// blob travel with every reply.
 interface BotReplyResponse {
   reply?: string;
 }
@@ -16,8 +17,6 @@ interface BotReplyResponse {
 async function fetchBotReply(elder: ElderRow, text: string): Promise<string> {
   const baseUrl = process.env.BOT_REPLY_URL;
   if (!baseUrl) throw new Error("BOT_REPLY_URL not set");
-
-  const companion = await findCompanionById(elder.companionId);
 
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/reply`, {
     method: "POST",
@@ -28,15 +27,7 @@ async function fetchBotReply(elder: ElderRow, text: string): Promise<string> {
     body: JSON.stringify({
       elderId: elder.id,
       text,
-      context: {
-        companion: companion.key,
-        honorific: elder.honorific,
-        healthFlags: elder.healthFlags,
-        // elders has no timezone column (CORE.md §1) — single-market default.
-        timezone: "Asia/Jakarta",
-        elderName: elder.name,
-        personalize: elder.personalize ?? null,
-      },
+      personalize: elder.personalize ?? null,
     }),
     // LLM + tool round trips are slow; well past Meta's ack window, which
     // is why callers must never block the webhook response on this.

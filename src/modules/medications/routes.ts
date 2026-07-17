@@ -9,6 +9,7 @@ import { getOwnedElder } from "../../shared/owned-elder.js";
 import { utcDayRange, utcTimeOfDay } from "../../shared/dates.js";
 import { checkMissedDoses } from "./missed-doses.js";
 import { serializeMedication, computeSlots } from "./service.js";
+import { syncElderMedications } from "../../shared/bot-sync.js";
 
 const uuidSchema = z.string().uuid();
 const HH_MM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -81,6 +82,8 @@ export async function medicationRoutes(app: FastifyInstance) {
       })
       .returning();
 
+    syncElderMedications(body.elder_id, app.log);
+
     reply.code(201);
     return serializeMedication(inserted);
   });
@@ -100,6 +103,8 @@ export async function medicationRoutes(app: FastifyInstance) {
       })
       .where(eq(medications.id, id))
       .returning();
+
+    syncElderMedications(existing.elderId, app.log);
 
     return serializeMedication(updated!);
   });
