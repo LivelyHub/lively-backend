@@ -15,6 +15,7 @@ import { alertRoutes } from "./routes/alerts.js";
 import { familyMemberRoutes } from "./routes/family-members.js";
 import { titipanRoutes } from "./routes/titipan.js";
 import { reportRoutes } from "./routes/report.js";
+import { webhookRoutes } from "./routes/webhook.js";
 import type { HttpError } from "./lib/http-errors.js";
 
 const app = Fastify({ logger: true });
@@ -91,6 +92,7 @@ await app.register(alertRoutes);
 await app.register(familyMemberRoutes);
 await app.register(titipanRoutes);
 await app.register(reportRoutes);
+await app.register(webhookRoutes);
 
 app.listen({ port, host: "0.0.0.0" }).catch((err) => {
   app.log.error(err);

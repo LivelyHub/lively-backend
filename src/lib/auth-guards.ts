@@ -17,7 +17,7 @@ export async function requireFamily(request: FastifyRequest): Promise<void> {
   }
 }
 
-function safeCompare(a: string, b: string): boolean {
+export function safeCompare(a: string, b: string): boolean {
   const aBuf = Buffer.from(a);
   const bBuf = Buffer.from(b);
   if (aBuf.length !== bBuf.length) return false;
