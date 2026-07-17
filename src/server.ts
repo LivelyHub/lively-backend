@@ -91,7 +91,9 @@ const port = Number(process.env.PORT ?? 3000);
 const requiredEnvVars = ["DATABASE_URL", "JWT_SECRET", "BOT_SERVICE_KEY"];
 const missingEnvVars = requiredEnvVars.filter((name) => !process.env[name]);
 if (missingEnvVars.length > 0) {
-  app.log.error(`Missing required env vars: ${missingEnvVars.join(", ")} — refusing to start`);
+  app.log.error(
+    `Missing required env vars: ${missingEnvVars.join(", ")} — refusing to start`,
+  );
   process.exit(1);
 }
 
