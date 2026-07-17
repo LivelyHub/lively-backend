@@ -11,8 +11,11 @@ dist/
 build/
 *.tsbuildinfo
 
-# Uploaded photos (local disk storage, see src/shared/uploads.ts)
-uploads/
+# Uploaded photos (local disk storage, see src/shared/uploads.ts).
+# Anchored to the repo root: a bare "uploads/" also ignored
+# src/modules/uploads/, which silently kept that module out of the
+# refactor commit and broke CI.
+/uploads/
 
 # OS / editor
 .DS_Store
